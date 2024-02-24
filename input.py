@@ -33,12 +33,70 @@ class PathConfig:
 
 class DataReader(PathConfig):
 
-    def __init__(self, file_paths):
+    def __init__(self):
         super().__init__()
-        self._file_paths = file_paths
+
+    def combine_csv(self,case):
         
-    def combine_csv(self):
-        pass
+        csv_list = []
+        DOE_list = []
+        run_list = []
+        run_count = 1 # Assuming at least one run exists
+
+        # data and DOE paths for the case under consideration
+        csv_path = os.path.join(self.raw_datapath,case) #output data
+        doe_path = os.path.join(self.label_datapath,case) #input data/labels
+
+        file_count = len(os.listdir(csv_path))
+
+        # Loop concatenating DOE and csv files from different parametric runs
+        for i in range(1,file_count+1):
+
+            csv_filename = f'{case}_{i}.csv'
+            doe_filename = f'LHS_{case}_{i}.pkl'
+            
+            # Read csv and DOE files and store in corresponding list
+            data = pd.read_csv(os.path.join(csv_path, csv_filename))
+            csv_list.append(data)
+            
+            doe_lbl = pd.read_pickle(os.path.join(doe_path, doe_filename))
+            DOE_list.append(doe_lbl)
+
+        # Concatenate all files into a single df
+        data_df = pd.concat(csv_list, ignore_index=True)
+        data_df.set_index('Run_ID', drop=False)
+
+        DOE_df = pd.concat(DOE_list, ignore_index=True)
+
+        # Count how many runs are stored successfully in the CSV.
+        for i in range(1,len(data_df['Run_ID'])):
+            
+            if data_df['Run_ID'].iloc[i-1] == data_df['Run_ID'].iloc[i]:
+                continue
+            else:
+                run_count +=1
+                #Extract Run_ID once a new Run is identified
+                run_list.append(data_df['Run_ID'].iloc[i-1])
+
+        run_list.append(data_df['Run_ID'].iloc[-1])
+
+        #Sort runs by run number
+        sorted_runs = sorted(run_list, key=lambda x: int(x.split('_')[-1]))
+
+        # Filter out from DOE labels only the cases that were finished successfully.
+        # Run_Id number at the end of the string is matched to the DOE_df index, considering run 1 is index 0
+        df_DOE_filtered = DOE_df[DOE_df.index.isin([int(run.split('_')[-1])-1 for run in sorted_runs])]
+
+        # Create an index column and set it as new index, with ID number equal to Run_ID-1
+        data_df['index'] = data_df.index.str.split('_').str[-1].astype(int) -1
+        # Ordered csv df by Run_ID
+        data_df_sorted = data_df.sort_values(by='index').set_index('index')
+
+        # Merge input parameters from psweep run with cases successfully finished
+        df = pd.concat([df_DOE_filtered,data_df_sorted],axis=1).set_index('Run')
+
+        return df
+
 
 class DataProcessor(PathConfig):
 
@@ -51,7 +109,15 @@ class DataPackager(PathConfig):
         super().__init__()
 
 def main():
-    pass
+    
+    case_name = input('Select a study to process raw datasets (sp_geom, surf, geom): ')
+
+    # Datareader instance
+    dt_reader = DataReader()
+
+    #Combine csv and DOE label files
+    df = dt_reader.combine_csv(case_name)
+
 
 if __name__ == "__main__":
     main()
