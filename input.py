@@ -11,6 +11,9 @@ import ast
 import os
 import configparser
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
 class PathConfig:
 
@@ -123,16 +126,38 @@ class DataProcessor(PathConfig):
 
         # Scale output features
         for column in df.columns:
-            #Convert text lists into np arrays
-            df.loc[:,column] = df.loc[:,column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else x)
-            # Apply scaler, reshaping into a column vector (n,1) for scaler to work
-            df.loc[:,column] = df.loc[:,column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
-            # reshaping back to a 1D list
-            df.loc[:,column] = df.loc[:,column].apply(lambda x: x.reshape(-1,))
+
+            # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
+            if df[column].dtype == 'object':
+                #Convert text lists into np arrays
+                df.loc[:,column] = df.loc[:,column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
+                df.loc[:,column] = df.loc[:,column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
+                # reshaping back to a 1D list
+                df.loc[:,column] = df.loc[:,column].apply(lambda x: x.reshape(-1,))
+            else:
+                df.loc[:,column] = norm_scaler.fit_transform(df.loc[:,column].values.reshape(-1,1))
+                df.loc[:,column] = df.loc[:,column].values.reshape(-1,)
         
         return df
     
+    def PCA_reduction(self,df,var_ratio):
     
+        # Empty Dataframe for PCs results
+        pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var']
+        pca_df = pd.DataFrame(columns=pca_labels)
+
+        # Carry out expansion and PCA per array features(exclude scalar outputs)
+        for column in df.select_dtypes(include=object).columns:
+
+            # Expanding each feature list into columns to carry out PCA
+            df_exp = df.loc[:,column].apply(pd.Series)
+            #Naming columns with feature name for later reference
+            df_exp.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df[column].iloc[0]))]
+
+            # PCA for dimensionality reduction, deciding n_features by variance captured
+            pca = PCA(n_components=var_ratio)
+            pca_arr = pca.fit_transform(df_exp)
+            n_pcs = pca.components_.shape[0] # the shape of pca (n_components, n_columns(n_features))
 
 class DataPackager(PathConfig):
 
@@ -175,6 +200,10 @@ def main():
 
     #Scale output features
     y_scaled = dt_processor.scale_data(y_df)
+
+    # Carry out PCA on scaled outputs
+    var_ratio = 0.95
+    dt_processor.PCA_reduction(y_scaled,var_ratio)
 
 
 
