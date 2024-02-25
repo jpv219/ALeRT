@@ -6,8 +6,11 @@
 ##########################################################################
 
 import pandas as pd
+import numpy as np
+import ast
 import os
 import configparser
+from sklearn.preprocessing import MinMaxScaler
 
 class PathConfig:
 
@@ -113,20 +116,37 @@ class DataProcessor(PathConfig):
     def __init__(self):
         super().__init__()
 
+    def scale_data(self,df):
+
+        # Create a StandardScaler and fit it to the data
+        norm_scaler = MinMaxScaler(feature_range=(-1,1))
+
+        # Scale output features
+        for column in df.columns:
+            #Convert text lists into np arrays
+            df.loc[:,column] = df.loc[:,column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else x)
+            # Apply scaler, reshaping into a column vector (n,1) for scaler to work
+            df.loc[:,column] = df.loc[:,column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
+            # reshaping back to a 1D list
+            df.loc[:,column] = df.loc[:,column].apply(lambda x: x.reshape(-1,))
+        
+        return df
+    
+    
+
 class DataPackager(PathConfig):
 
     def __init__(self):
         super().__init__()
 
-    def scale_df(self):
-        pass
 
 def main():
     
     case_name = input('Select a study to process raw datasets (sp_geom, surf, geom): ')
 
-    # Datareader instance
+    # Class instances
     dt_reader = DataReader()
+    dt_processor = DataProcessor()
 
     #Combine csv and DOE label files
     df = dt_reader.combine_data(case_name)
@@ -140,19 +160,21 @@ def main():
     in_idx = input('Provide cut-off index between input and output params (first out idx): ')
 
     #drop output columns assuming DOE df is concatenated first always
-    input_df = df.drop(df.columns[int(in_idx):], axis = 1)
+    X_df = df.drop(df.columns[int(in_idx):], axis = 1)
 
     #Choose idx for output variables
     out_idx = input('Select the output parameters idx to include (separated by ,) or choose \'all\': ')
 
     if out_idx == 'all':
-        output_df = df.drop(df.columns[:int(in_idx)], axis = 1)
+        y_df = df.drop(df.columns[:int(in_idx)], axis = 1)
     else:
         #selected variables to preserve
         out_idx_list = [int(x) for x in out_idx.split(',')]
 
-        output_df = df[df.columns[out_idx_list]]
+        y_df = df[df.columns[out_idx_list]]
 
+    #Scale output features
+    y_scaled = dt_processor.scale_data(y_df)
 
 
 
