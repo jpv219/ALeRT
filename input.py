@@ -98,7 +98,7 @@ class DataReader(PathConfig):
         data_df_reshaped = data_df_sorted.groupby('index').agg(lambda x: x.tolist())
 
         # Merge input parameters from psweep run with cases successfully finished
-        df = pd.concat([df_DOE_filtered,data_df_reshaped],axis=1).set_index('Run_ID')
+        df = pd.concat([df_DOE_filtered,data_df_reshaped],axis=1)
 
         return df
 
@@ -122,7 +122,6 @@ def main():
     #Combine csv and DOE label files
     df = dt_reader.combine_csv(case_name)
 
-    print(df.head)
 
 
 if __name__ == "__main__":
