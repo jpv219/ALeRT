@@ -64,7 +64,7 @@ class DataReader(PathConfig):
 
         # Concatenate all files into a single df
         data_df = pd.concat(csv_list, ignore_index=True)
-        data_df.set_index('Run_ID', drop=False)
+        data_df = data_df.set_index('Run_ID', drop=False)
 
         DOE_df = pd.concat(DOE_list, ignore_index=True)
 
@@ -89,14 +89,18 @@ class DataReader(PathConfig):
 
         # Create an index column and set it as new index, with ID number equal to Run_ID-1
         data_df['index'] = data_df.index.str.split('_').str[-1].astype(int) -1
-        # Ordered csv df by Run_ID
+
+        # Ordered csv df by Run_IDnumber and drop Run_ID column
         data_df_sorted = data_df.sort_values(by='index').set_index('index')
+        data_df_sorted = data_df_sorted.drop(columns=['Run_ID'])
+
+        #Re-shaping dataframe into object arrays per index
+        data_df_reshaped = data_df_sorted.groupby('index').agg(lambda x: x.tolist())
 
         # Merge input parameters from psweep run with cases successfully finished
-        df = pd.concat([df_DOE_filtered,data_df_sorted],axis=1).set_index('Run')
+        df = pd.concat([df_DOE_filtered,data_df_reshaped],axis=1).set_index('Run_ID')
 
         return df
-
 
 class DataProcessor(PathConfig):
 
@@ -117,6 +121,8 @@ def main():
 
     #Combine csv and DOE label files
     df = dt_reader.combine_csv(case_name)
+
+    print(df.head)
 
 
 if __name__ == "__main__":
