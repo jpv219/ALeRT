@@ -108,7 +108,6 @@ class DataReader(PathConfig):
 
         return df
 
-
 class DataProcessor(PathConfig):
 
     def __init__(self):
@@ -131,6 +130,29 @@ def main():
 
     #Combine csv and DOE label files
     df = dt_reader.combine_data(case_name)
+
+    # Divide between input and output params in the combined df
+    params = df.columns
+    param_idx = [(idx,param) for idx,param in enumerate(params)]
+
+    print(f'The input and output parameters in this case study are: {param_idx}')
+
+    in_idx = input('Provide cut-off index between input and output params (first out idx): ')
+
+    #drop output columns assuming DOE df is concatenated first always
+    input_df = df.drop(df.columns[int(in_idx):], axis = 1)
+
+    #Choose idx for output variables
+    out_idx = input('Select the output parameters idx to include (separated by ,) or choose \'all\': ')
+
+    if out_idx == 'all':
+        output_df = df.drop(df.columns[:int(in_idx)], axis = 1)
+    else:
+        #selected variables to preserve
+        out_idx_list = [int(x) for x in out_idx.split(',')]
+
+        output_df = df[df.columns[out_idx_list]]
+
 
 
 
