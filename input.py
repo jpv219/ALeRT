@@ -36,7 +36,7 @@ class DataReader(PathConfig):
     def __init__(self):
         super().__init__()
 
-    def combine_csv(self,case):
+    def collect_csv_pkl(self,case):
         
         csv_list = []
         DOE_list = []
@@ -80,6 +80,12 @@ class DataReader(PathConfig):
 
         run_list.append(data_df['Run_ID'].iloc[-1])
 
+        return data_df, DOE_df, run_list
+
+    def combine_data(self,case):
+        
+        data_df, DOE_df, run_list = self.collect_csv_pkl(case)
+        
         #Sort runs by run number
         sorted_runs = sorted(run_list, key=lambda x: int(x.split('_')[-1]))
 
@@ -94,13 +100,14 @@ class DataReader(PathConfig):
         data_df_sorted = data_df.sort_values(by='index').set_index('index')
         data_df_sorted = data_df_sorted.drop(columns=['Run_ID'])
 
-        #Re-shaping dataframe into object arrays per index
+        #Re-shaping dataframe into object arrays per index, grouping run values into lists
         data_df_reshaped = data_df_sorted.groupby('index').agg(lambda x: x.tolist())
 
-        # Merge input parameters from psweep run with cases successfully finished
+        # Merge input parameters (labels) with hydrodynamic data output (target)
         df = pd.concat([df_DOE_filtered,data_df_reshaped],axis=1)
 
         return df
+
 
 class DataProcessor(PathConfig):
 
@@ -112,6 +119,9 @@ class DataPackager(PathConfig):
     def __init__(self):
         super().__init__()
 
+    def scale_df(self):
+        pass
+
 def main():
     
     case_name = input('Select a study to process raw datasets (sp_geom, surf, geom): ')
@@ -120,7 +130,7 @@ def main():
     dt_reader = DataReader()
 
     #Combine csv and DOE label files
-    df = dt_reader.combine_csv(case_name)
+    df = dt_reader.combine_data(case_name)
 
 
 
