@@ -197,7 +197,6 @@ class DataProcessor(PathConfig):
             plt.ylabel('Explained Variance')
             plt.title(f'{column}: [PC={n_pcs}]')
             fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_PCA_{column}'),dpi=200)
-            plt.show()
         
         return df, pca_df
 
@@ -218,10 +217,15 @@ class DataPackager(PathConfig):
         # Storing datasets with corresponding labelss
         for data, label in zip(data_pack,labels):
 
-            with open(os.path.join(self.input_savepath,f'{self._case,label}.pkl'),'wb') as file:
+            with open(os.path.join(self.input_savepath,self._case,f'{label}.pkl'),'wb') as file:
                 pickle.dump(data,file)
 
             print(f'Data packet {label} saved successfully')
+        
+        # Saving package labels to load later
+        with open(os.path.join(self.input_savepath,self._case,'Load_Labels.txt'), 'w') as file:
+                for label in labels:
+                    file.write(label + '\n')
             
 
 def main():
@@ -284,8 +288,8 @@ def main():
     else:
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train,X_test,y_test,pca_df]
-        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_res']
+        data_pack = [df,X_train,y_train,X_test,y_test]
+        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i']
 
         dt_packager.package_data(data_pack,labels)
 
