@@ -39,10 +39,11 @@ class PathConfig:
 
 class DataReader(PathConfig):
 
-    def __init__(self):
+    def __init__(self,case):
         super().__init__()
+        self._case = case
 
-    def collect_csv_pkl(self,case):
+    def collect_csv_pkl(self):
         
         csv_list = []
         DOE_list = []
@@ -50,16 +51,16 @@ class DataReader(PathConfig):
         run_count = 1 # Assuming at least one run exists
 
         # data and DOE paths for the case under consideration
-        csv_path = os.path.join(self.raw_datapath,case) #output data
-        doe_path = os.path.join(self.label_datapath,case) #input data/labels
+        csv_path = os.path.join(self.raw_datapath,self._case) #output data
+        doe_path = os.path.join(self.label_datapath,self._case) #input data/labels
 
         file_count = len(os.listdir(csv_path))
 
         # Loop concatenating DOE and csv files from different parametric runs
         for i in range(1,file_count+1):
 
-            csv_filename = f'{case}_{i}.csv'
-            doe_filename = f'LHS_{case}_{i}.pkl'
+            csv_filename = f'{self._case}_{i}.csv'
+            doe_filename = f'LHS_{self._case}_{i}.pkl'
             
             # Read csv and DOE files and store in corresponding list
             data = pd.read_csv(os.path.join(csv_path, csv_filename))
@@ -88,9 +89,9 @@ class DataReader(PathConfig):
 
         return data_df, DOE_df, run_list
 
-    def combine_data(self,case):
+    def combine_data(self):
         
-        data_df, DOE_df, run_list = self.collect_csv_pkl(case)
+        data_df, DOE_df, run_list = self.collect_csv_pkl()
         
         #Sort runs by run number
         sorted_runs = sorted(run_list, key=lambda x: int(x.split('_')[-1]))
@@ -116,8 +117,9 @@ class DataReader(PathConfig):
 
 class DataProcessor(PathConfig):
 
-    def __init__(self):
+    def __init__(self,case):
         super().__init__()
+        self._case = case
 
     def scale_data(self,df):
 
@@ -146,18 +148,51 @@ class DataProcessor(PathConfig):
         pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var']
         pca_df = pd.DataFrame(columns=pca_labels)
 
-        # Carry out expansion and PCA per array features(exclude scalar outputs)
+        # Carry out expansion and PCA per array features(exclude scalar outputs if any)
         for column in df.select_dtypes(include=object).columns:
 
             # Expanding each feature list into columns to carry out PCA
-            df_exp = df.loc[:,column].apply(pd.Series)
-            #Naming columns with feature name for later reference
+            df_exp = df.loc[:,column].apply(pd.Series) # rows = cases, columns = values per feature 'colummn'
+            #Naming columns with feature name for later reference ('E_0','E_1',...)
             df_exp.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df[column].iloc[0]))]
 
-            # PCA for dimensionality reduction, deciding n_features by variance captured
+            # PCA for dimensionality reduction, deciding n_pcs by variance captured, using the expanded df
             pca = PCA(n_components=var_ratio)
-            pca_arr = pca.fit_transform(df_exp)
-            n_pcs = pca.components_.shape[0] # the shape of pca (n_components, n_columns(n_features))
+            pca_arr = pca.fit_transform(df_exp) #fit PCA and apply reduction
+            n_pcs = pca.n_components_ # number of components extracted for the values expanded from feature 'column'
+
+            # Create a df with the principal components extracted as columns - reduced set of components to describe all original values in feature 'column'
+            pca_exp_df = pd.DataFrame(pca_arr, index = df.index, columns = [f'{column}' +'_pc{}'.format(i) for i in range(n_pcs)])
+            
+            # Update the original df, dropping the original feature column before expansion (dtype=object) and replacing with the principal components found
+            df = pd.concat([df,pca_exp_df],axis=1).drop(column,axis=1)
+
+            # pca.components has shape [n_components, n_features(columns in df_exp)]. 
+            # Each row is a principal component and the value per column is a weight related to the original feature value in df_exp associated with its relevance
+
+            # Finding the biggest weight per component, by going row by row and finding the position of the largest absolute value
+            max_weight_per_component = [np.abs(pca.components_[i]).argmax() for i in range(n_pcs)]
+
+            # Most relevant feature value (column in df_exp) per component
+            col_feature_per_component = [df_exp.columns[max_weight_per_component[i]] for i in range(n_pcs)]
+
+            for i in range(n_pcs):
+                #row to add to pca_df with PCs, dominant features and explained variance
+                row_to_add = pd.Series({pca_labels[0] : f'{column}'+'_pc{}'.format(i),
+                                        pca_labels[1]: col_feature_per_component[i],
+                                         pca_labels[2]: pca.explained_variance_ratio_[i]*100})
+                
+                pca_df = pd.concat([pca_df,pd.Series(row_to_add).to_frame().T],ignore_index=True)
+
+            fig = plt.figure(figsize=(8,6))
+            plt.plot(np.cumsum(pca.explained_variance_ratio_))
+            plt.xlabel('Number of Components')
+            plt.ylabel('Explained Variance')
+            plt.title(f'{column}: [PC={n_pcs}]')
+            fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_PCA_{column}'),dpi=200)
+            plt.show()
+        
+        return df, pca_df
 
 class DataPackager(PathConfig):
 
@@ -170,11 +205,11 @@ def main():
     case_name = input('Select a study to process raw datasets (sp_geom, surf, geom): ')
 
     # Class instances
-    dt_reader = DataReader()
-    dt_processor = DataProcessor()
+    dt_reader = DataReader(case_name)
+    dt_processor = DataProcessor(case_name)
 
     #Combine csv and DOE label files
-    df = dt_reader.combine_data(case_name)
+    df = dt_reader.combine_data()
 
     # Divide between input and output params in the combined df
     params = df.columns
@@ -201,9 +236,17 @@ def main():
     #Scale output features
     y_scaled = dt_processor.scale_data(y_df)
 
-    # Carry out PCA on scaled outputs
-    var_ratio = 0.95
-    dt_processor.PCA_reduction(y_scaled,var_ratio)
+    # train test splitting
+    X_train, X_test, y_train, y_test = train_test_split(X_df, y_scaled, test_size=0.25, random_state=2024)
+
+    pca_choice = input('Carry out dimensionality reduction through PCA? (y/n): ')
+
+    if pca_choice.lower() == 'y':
+
+        # Carry out PCA on scaled outputs for training only
+        var_ratio = 0.95
+        y_train_reduced, pca_df = dt_processor.PCA_reduction(y_train,var_ratio)
+
 
 
 
