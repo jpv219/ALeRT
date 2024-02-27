@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import ast
 import os
+import pickle
 import configparser
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
@@ -121,26 +122,32 @@ class DataProcessor(PathConfig):
         super().__init__()
         self._case = case
 
-    def scale_data(self,df):
+    def scale_data(self,data_pack):
 
         # Create a StandardScaler and fit it to the data
         norm_scaler = MinMaxScaler(feature_range=(-1,1))
 
-        # Scale output features
-        for column in df.columns:
+        scaled_data = []
 
-            # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
-            if df[column].dtype == 'object':
-                #Convert text lists into np arrays
-                df.loc[:,column] = df.loc[:,column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
-                df.loc[:,column] = df.loc[:,column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
-                # reshaping back to a 1D list
-                df.loc[:,column] = df.loc[:,column].apply(lambda x: x.reshape(-1,))
-            else:
-                df.loc[:,column] = norm_scaler.fit_transform(df.loc[:,column].values.reshape(-1,1))
-                df.loc[:,column] = df.loc[:,column].values.reshape(-1,)
-        
-        return df
+        for df in data_pack:
+
+            # Scale output features
+            for column in df.columns:
+
+                # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
+                if df[column].dtype == 'object':
+                    #Convert text lists into np arrays
+                    df.loc[:,column] = df.loc[:,column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
+                    df.loc[:,column] = df.loc[:,column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
+                    # reshaping back to a 1D list
+                    df.loc[:,column] = df.loc[:,column].apply(lambda x: x.reshape(-1,))
+                else:
+                    df.loc[:,column] = norm_scaler.fit_transform(df.loc[:,column].values.reshape(-1,1))
+                    df.loc[:,column] = df.loc[:,column].values.reshape(-1,)
+
+            scaled_data.append(df.copy())
+            
+        return scaled_data
     
     def PCA_reduction(self,df,var_ratio):
     
@@ -196,9 +203,26 @@ class DataProcessor(PathConfig):
 
 class DataPackager(PathConfig):
 
-    def __init__(self):
+    def __init__(self,case):
         super().__init__()
+        self._case = case
+    
+    def package_data(self,data_pack,labels):
 
+        #Create the folder to store input datasets
+        try:
+            os.mkdir(os.path.join(self.input_savepath,self._case))
+        except:
+            pass
+        
+        # Storing datasets with corresponding labelss
+        for data, label in zip(data_pack,labels):
+
+            with open(os.path.join(self.input_savepath,f'{self._case,label}.pkl'),'wb') as file:
+                pickle.dump(data,file)
+
+            print(f'Data packet {label} saved successfully')
+            
 
 def main():
     
@@ -207,6 +231,8 @@ def main():
     # Class instances
     dt_reader = DataReader(case_name)
     dt_processor = DataProcessor(case_name)
+    dt_packager = DataPackager(case_name)
+    path = PathConfig
 
     #Combine csv and DOE label files
     df = dt_reader.combine_data()
@@ -233,8 +259,10 @@ def main():
 
         y_df = df[df.columns[out_idx_list]]
 
-    #Scale output features
-    y_scaled = dt_processor.scale_data(y_df)
+    #Scale input and output features
+    scaled_data = dt_processor.scale_data([X_df,y_df])
+
+    X_scaled, y_scaled = scaled_data[0], scaled_data[1]
 
     # train test splitting
     X_train, X_test, y_train, y_test = train_test_split(X_df, y_scaled, test_size=0.25, random_state=2024)
@@ -247,6 +275,19 @@ def main():
         var_ratio = 0.95
         y_train_reduced, pca_df = dt_processor.PCA_reduction(y_train,var_ratio)
 
+        # Package data for further use training and deploying regression models
+        data_pack = [df,X_train,y_train_reduced,X_test,y_test,pca_df]
+        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_res']
+
+        dt_packager.package_data(data_pack,labels)
+
+    else:
+
+        # Package data for further use training and deploying regression models
+        data_pack = [df,X_train,y_train,X_test,y_test,pca_df]
+        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_res']
+
+        dt_packager.package_data(data_pack,labels)
 
 
 
