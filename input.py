@@ -289,7 +289,7 @@ def main():
 
         # Package data for further use training and deploying regression models
         data_pack = [df,X_train,y_train,X_test,y_test]
-        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i']
+        labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i']
 
         dt_packager.package_data(data_pack,labels)
 

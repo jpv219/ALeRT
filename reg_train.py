@@ -18,13 +18,9 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
 
-# REGRESSOR PARENT CLASS
+class PathConfig:
 
-class Regressor(ABC):
-    """Abstract base class for regression models."""
-
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
+    def __init__(self):
         self._config = configparser.ConfigParser()
         self._config.read(os.path.join(os.getcwd(), 'config/config_paths.ini'))
 
@@ -43,6 +39,14 @@ class Regressor(ABC):
     @property
     def label_datapath(self):
         return self._config['Path']['doe']
+
+# REGRESSOR PARENT CLASS
+
+class Regressor(ABC):
+    """Abstract base class for regression models."""
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
 
     @abstractmethod
     def init_model(self):
@@ -126,6 +130,36 @@ class KNNWrapper(Regressor):
 
 def main():
 
+    # Load data to process
+    path = PathConfig()
+
+    case = input('Select case to load data for model train and deployment (sp_geom, geom, surf): ')
+    label_package = []
+    data_packs = []
+
+    # Read package names to later import
+    with open(os.path.join(path.input_savepath,case,'Load_Labels.txt'), 'r') as file:
+        lines = file.readlines()
+
+        for line in lines:
+            label_package.append(line.split('\n')[0])
+
+    # Save only train and test packs
+    label_package =  [item for item in label_package if item not in ['full', 'PCA_res']]
+    
+    # Load pickle files
+    for label in label_package:
+
+        data_path = os.path.join(path.input_savepath,case,f'{label}.pkl')
+
+        if os.path.exists(data_path):
+
+            data_pack = pd.read_pickle(data_path)           
+            data_packs.append(data_pack)
+
+    x_train, y_train, x_test, y_test = data_packs[:4]
+
+    
     ## Regressor instances, labels and hyperparameters
     
     model_labels = {'dt': 'Decision Tree', 'xgb': 'XGBoost', 
@@ -152,7 +186,7 @@ def main():
     model_params = hyperparameters.get(model_choice)
 
     #instantiating the wrapper with the corresponding hyperparams
-    model = wrapper_model(**hyperparameters)
+    model = wrapper_model(**model_params)
 
     print(model)
 
