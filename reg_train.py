@@ -53,6 +53,9 @@ class Regressor(ABC):
         """Initialize the regression model."""
         pass
 
+    def model_eval(self):
+        pass
+
 # Individual regressor child classes
     
 class DecisionTreeWrapper(Regressor):
@@ -188,11 +191,7 @@ def main():
     #instantiating the wrapper with the corresponding hyperparams
     model = wrapper_model(**model_params)
 
-    print(model)
-
-
-    
-    
+ 
 
 if __name__ == "__main__":
     main()
