@@ -2,3 +2,6 @@
 *pkl
 *png
 *txt
+*ini
+*.DS_Store
+/config/*

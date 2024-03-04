@@ -269,7 +269,7 @@ def main():
     X_scaled, y_scaled = scaled_data[0], scaled_data[1]
 
     # train test splitting
-    X_train, X_test, y_train, y_test = train_test_split(X_df, y_scaled, test_size=0.25, random_state=2024)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, test_size=0.25, random_state=2024)
 
     pca_choice = input('Carry out dimensionality reduction through PCA? (y/n): ')
 

@@ -7,7 +7,6 @@
 
 import numpy as np
 import pandas as pd
-import pickle
 import configparser
 import os
 from abc import ABC, abstractmethod
@@ -17,6 +16,8 @@ from xgboost import XGBRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+
 
 class PathConfig:
 
@@ -53,8 +54,27 @@ class Regressor(ABC):
         """Initialize the regression model."""
         pass
 
-    def model_eval(self):
-        pass
+    def model_eval(self, **kwargs):
+        self.kwargs = kwargs
+
+        # Reading data arrays for model fit and eval
+        X_train_arr = self.kwargs.get('X_train',None).to_numpy()
+        y_train_arr = self.kwargs.get('y_train',None).to_numpy()
+        X_test_arr = self.kwargs.get('X_test').to_numpy()
+        y_test_arr = self.kwargs.get('y_test').to_numpy()
+
+        model = self.kwargs.get('model')
+
+        # Fit model from wrapper
+        model.fit(X_train_arr,y_train_arr)
+
+        # Carry out predictions and evaluate model performance
+        y_pred = model.predict(X_test_arr)
+        r2 = r2_score(y_test_arr,y_pred)
+        mae = mean_absolute_error(y_test_arr,y_pred)
+        mse = mean_squared_error(y_test_arr,y_pred)
+
+        return r2,mae,mse
 
 # Individual regressor child classes
     
@@ -66,11 +86,15 @@ class DecisionTreeWrapper(Regressor):
     def init_model(self):
 
         max_depth = self.kwargs.get('max_depth',None)
+        print(max_depth)
 
         if max_depth is None:
             raise ValueError('Max_depth is required for Decision Tree Regressor')
         
         return DecisionTreeRegressor(max_depth=max_depth, random_state=self.kwargs.get('random_state',2024))
+    
+    def model_eval(self, **kwargs):
+        return super().model_eval(**kwargs)
 
 class XGBoostWrapper(Regressor):
 
@@ -87,6 +111,9 @@ class XGBoostWrapper(Regressor):
         
         return XGBRegressor(max_depth=max_depth, n_estimators = n_estimators , random_state=self.kwargs.get('random_state',2024))
     
+    def model_eval(self, **kwargs):
+        return super().model_eval(**kwargs)
+    
 class RandomForestWrapper(Regressor):
 
     def __init__(self, **kwargs):
@@ -100,6 +127,9 @@ class RandomForestWrapper(Regressor):
             raise ValueError('n_estimators is required for Random Forest Regressor')
         
         return RandomForestRegressor(n_estimators = n_estimators, random_state=self.kwargs.get('random_state',2024))
+    
+    def model_eval(self, **kwargs):
+        return super().model_eval(**kwargs)
     
 class SVMWrapper(Regressor):
 
@@ -115,6 +145,9 @@ class SVMWrapper(Regressor):
             raise ValueError(' C and epsilon required for SVM')
 
         return SVR(C=c_coef,epsilon=epsilon)
+    
+    def model_eval(self, **kwargs):
+        return super().model_eval(**kwargs)
 
 class KNNWrapper(Regressor):
 
@@ -129,6 +162,9 @@ class KNNWrapper(Regressor):
             raise ValueError('n_neighbours required for KNN')
         
         return KNeighborsRegressor(n_neighbors=n_neighbours)
+    
+    def model_eval(self, **kwargs):
+        return super().model_eval(**kwargs)
 
 
 def main():
@@ -160,8 +196,7 @@ def main():
             data_pack = pd.read_pickle(data_path)           
             data_packs.append(data_pack)
 
-    x_train, y_train, x_test, y_test = data_packs[:4]
-
+    X_train, y_train, X_test, y_test = data_packs[:4]
     
     ## Regressor instances, labels and hyperparameters
     
@@ -188,9 +223,18 @@ def main():
 
     model_params = hyperparameters.get(model_choice)
 
-    #instantiating the wrapper with the corresponding hyperparams
-    model = wrapper_model(**model_params)
+    model_label = model_labels.get(model_choice)
 
+    # Instantiating the wrapper with the corresponding hyperparams
+    model_instance = wrapper_model(**model_params)
+
+    model = model_instance.init_model()
+
+    # Regression training and evaluation
+    r2, mae, mse = model_instance.model_eval(X_train = X_train, y_train = y_train, 
+                                             X_test = X_test, y_test = y_test, model=model)
+
+    print(r2)
  
 
 if __name__ == "__main__":
