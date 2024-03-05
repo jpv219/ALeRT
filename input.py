@@ -137,13 +137,14 @@ class DataProcessor(PathConfig):
                 # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
                 if df[column].dtype == 'object':
                     #Convert text lists into np arrays
-                    df.loc[:,column] = df.loc[:,column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
-                    df.loc[:,column] = df.loc[:,column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
+                    df[column] = df[column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
+                    df[column] = df[column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
                     # reshaping back to a 1D list
-                    df.loc[:,column] = df.loc[:,column].apply(lambda x: x.reshape(-1,))
+                    df[column] = df[column].apply(lambda x: x.reshape(-1,))
                 else:
-                    df.loc[:,column] = norm_scaler.fit_transform(df.loc[:,column].values.reshape(-1,1))
-                    df.loc[:,column] = df.loc[:,column].values.reshape(-1,)
+                    df[column] = df[column].astype(float)
+                    df[column] = norm_scaler.fit_transform(df[column].values.reshape(-1,1))
+                    df[column] = df[column].values.reshape(-1,)
 
             scaled_data.append(df.copy())
             
