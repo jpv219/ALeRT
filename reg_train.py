@@ -86,7 +86,6 @@ class DecisionTreeWrapper(Regressor):
     def init_model(self):
 
         max_depth = self.kwargs.get('max_depth',None)
-        print(max_depth)
 
         if max_depth is None:
             raise ValueError('Max_depth is required for Decision Tree Regressor')
@@ -230,11 +229,11 @@ def main():
 
     model = model_instance.init_model()
 
-    # Regression training and evaluation
-    r2, mae, mse = model_instance.model_eval(X_train = X_train, y_train = y_train, 
-                                             X_test = X_test, y_test = y_test, model=model)
+    model.fit(X_train,y_train)
 
-    print(r2)
+    # Regression training and evaluation
+    #r2, mae, mse = model_instance.model_eval(X_train = X_train, y_train = y_train, 
+                                             #X_test = X_test, y_test = y_test, model=model)
  
 
 if __name__ == "__main__":

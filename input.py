@@ -159,9 +159,9 @@ class DataProcessor(PathConfig):
         for column in df.select_dtypes(include=object).columns:
 
             # Expanding each feature list into columns to carry out PCA
-            df_exp = df.loc[:,column].apply(pd.Series) # rows = cases, columns = values per feature 'colummn'
+            df_exp = df[column].apply(pd.Series) # rows = cases, columns = values per feature 'colummn'
             #Naming columns with feature name for later reference ('E_0','E_1',...)
-            df_exp.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df[column].iloc[0]))]
+            df_exp.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df_exp.columns))]
 
             # PCA for dimensionality reduction, deciding n_pcs by variance captured, using the expanded df
             pca = PCA(n_components=var_ratio)
@@ -236,7 +236,6 @@ def main():
     dt_reader = DataReader(case_name)
     dt_processor = DataProcessor(case_name)
     dt_packager = DataPackager(case_name)
-    path = PathConfig
 
     #Combine csv and DOE label files
     df = dt_reader.combine_data()
@@ -251,6 +250,11 @@ def main():
 
     #drop output columns assuming DOE df is concatenated first always
     X_df = df.drop(df.columns[int(in_idx):], axis = 1)
+
+    # Dropping SMX_pos and length columns from input features required by the regressor
+    for column in X_df.columns:
+        if column == 'SMX_pos (mm)' or column == 'Length':
+            X_df = X_df.drop(column,axis=1)
 
     #Choose idx for output variables
     out_idx = input('Select the output parameters idx to include (separated by ,) or choose \'all\': ')
@@ -287,8 +291,18 @@ def main():
 
     else:
 
+        # Expand y_train columns containing arrays to individual columns per feature value for correct handling by regressor
+        y_train_exp = pd.DataFrame()
+
+        # targeting only columns with arrays as dtype=objects
+        for column in y_train.select_dtypes(include=object).columns:
+            df = y_train[column].apply(pd.Series)
+            df.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df.columns))]
+
+            y_train_exp = pd.concat([y_train_exp,df], axis=1)
+
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train,X_test,y_test]
+        data_pack = [df,X_train,y_train_exp,X_test,y_test]
         labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i']
 
         dt_packager.package_data(data_pack,labels)
