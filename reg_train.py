@@ -15,6 +15,7 @@ from sklearn.tree import DecisionTreeRegressor
 from xgboost import XGBRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
+from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
@@ -60,8 +61,9 @@ class Regressor(ABC):
         # Reading data arrays for model fit and eval
         X_train_arr = self.kwargs.get('X_train',None).to_numpy()
         y_train_arr = self.kwargs.get('y_train',None).to_numpy()
-        X_test_arr = self.kwargs.get('X_test').to_numpy()
-        y_test_arr = self.kwargs.get('y_test').to_numpy()
+        X_test_arr = self.kwargs.get('X_test',None).to_numpy()
+        y_test_arr = self.kwargs.get('y_test',None).to_numpy()
+        pca = self.kwargs.get('PCA')
 
         model = self.kwargs.get('model')
 
@@ -70,6 +72,7 @@ class Regressor(ABC):
 
         # Carry out predictions and evaluate model performance
         y_pred = model.predict(X_test_arr)
+
         r2 = r2_score(y_test_arr,y_pred)
         mae = mean_absolute_error(y_test_arr,y_pred)
         mse = mean_squared_error(y_test_arr,y_pred)
@@ -143,7 +146,7 @@ class SVMWrapper(Regressor):
         if c_coef is None or epsilon is None:
             raise ValueError(' C and epsilon required for SVM')
 
-        return SVR(C=c_coef,epsilon=epsilon)
+        return MultiOutputRegressor(SVR(C=c_coef,epsilon=epsilon))
     
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
@@ -182,6 +185,12 @@ def main():
         for line in lines:
             label_package.append(line.split('\n')[0])
 
+    # Checking in PCA has been applied to the dataset
+    if 'PCA_res' in label_package:
+        pca = True
+    else:
+        pca = False
+    
     # Save only train and test packs
     label_package =  [item for item in label_package if item not in ['full', 'PCA_res']]
     
@@ -229,11 +238,11 @@ def main():
 
     model = model_instance.init_model()
 
-    model.fit(X_train,y_train)
-
     # Regression training and evaluation
-    #r2, mae, mse = model_instance.model_eval(X_train = X_train, y_train = y_train, 
-                                             #X_test = X_test, y_test = y_test, model=model)
+    r2, mae, mse = model_instance.model_eval(X_train = X_train, y_train = y_train, 
+                                             X_test = X_test, y_test = y_test, model=model, PCA=pca)
+    
+    print(r2)
  
 
 if __name__ == "__main__":

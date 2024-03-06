@@ -276,6 +276,15 @@ def main():
     # train test splitting
     X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, test_size=0.25, random_state=2024)
 
+    y_test_exp = pd.DataFrame()
+    
+    # Expand y_test arrays into separate columns for further regression eval
+    for column in y_test.select_dtypes(include=object).columns:
+        df = y_test[column].apply(pd.Series)
+        df.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df.columns))]
+
+        y_test_exp = pd.concat([y_test_exp,df], axis=1)
+
     pca_choice = input('Carry out dimensionality reduction through PCA? (y/n): ')
 
     if pca_choice.lower() == 'y':
@@ -285,14 +294,12 @@ def main():
         y_train_reduced, pca_df = dt_processor.PCA_reduction(y_train,var_ratio)
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_reduced,X_test,y_test,pca_df]
+        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_df]
         labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_res']
-
-        dt_packager.package_data(data_pack,labels)
 
     else:
 
-        # Expand y_train columns containing arrays to individual columns per feature value for correct handling by regressor
+        # Expand y_train and test columns containing arrays to individual columns per feature value for correct handling by regressor
         y_train_exp = pd.DataFrame()
 
         # targeting only columns with arrays as dtype=objects
@@ -303,10 +310,10 @@ def main():
             y_train_exp = pd.concat([y_train_exp,df], axis=1)
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_exp,X_test,y_test]
+        data_pack = [df,X_train,y_train_exp,X_test,y_test_exp]
         labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i']
-
-        dt_packager.package_data(data_pack,labels)
+    
+    dt_packager.package_data(data_pack,labels)
 
 
 
