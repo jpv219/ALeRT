@@ -18,6 +18,8 @@ from sklearn.svm import SVR
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from sklearn.model_selection import RepeatedKFold
+from sklearn.model_selection import cross_val_score
 
 
 class PathConfig:
@@ -55,29 +57,70 @@ class Regressor(ABC):
         """Initialize the regression model."""
         pass
 
+    def kfold_cv(self,X,y,model):
+
+        # number of folds to try as hyperparameter for the cross validation
+        folds = range(2,3)
+        # Lists to store accuracy metrics for each kfold cv
+        means = []
+        mins = []
+        max = []
+
+        for k in folds:
+            cv = RepeatedKFold(n_splits=k, n_repeats=5)
+
+            scores = cross_val_score(model, X, y, scoring='accuracy',cv=cv, n_jobs=-1,verbose=1)
+
+            means.append(np.mean(scores))
+            mins.append(np.mean(scores) - scores.min())
+            max.append(scores.max() - np.mean(scores))
+
+        print(means)
+        
+        return means
+        
+
     def model_eval(self, **kwargs):
         self.kwargs = kwargs
 
-        # Reading data arrays for model fit and eval
-        X_train_arr = self.kwargs.get('X_train',None).to_numpy()
-        y_train_arr = self.kwargs.get('y_train',None).to_numpy()
-        X_test_arr = self.kwargs.get('X_test',None).to_numpy()
-        y_test_arr = self.kwargs.get('y_test',None).to_numpy()
         pca = self.kwargs.get('PCA')
-
         model = self.kwargs.get('model')
+        kfold = self.kwargs.get('kfold')
 
-        # Fit model from wrapper
-        model.fit(X_train_arr,y_train_arr)
+        # Reading data arrays for model fit and eval
+        data_packs = self.kwargs.get('data_packs',None)
+        X_train, y_train, X_test, y_test = data_packs[:4]
 
-        # Carry out predictions and evaluate model performance
-        y_pred = model.predict(X_test_arr)
+        # Converting into numpy for model fit and prediction
+        X_train_arr = X_train.to_numpy()
+        y_train_arr = y_train.to_numpy()
+        X_test_arr = X_test.to_numpy()
+        y_test_arr = y_test.to_numpy()
 
-        r2 = r2_score(y_test_arr,y_pred)
-        mae = mean_absolute_error(y_test_arr,y_pred)
-        mse = mean_squared_error(y_test_arr,y_pred)
+        # Carry out repeated Kfold cross validation
+        if kfold.lower() == 'y':
 
-        return r2,mae,mse
+            #Undo the split for the Kfold
+            X = np.concatenate(X_train_arr,X_test_arr,axis=1)
+            y = np.concatenate(y_train_arr, y_test_arr, axis=1)
+
+            scores = self.kfold_cv(X,y,model)
+
+        else:
+
+            # Fit model from wrapper
+            model.fit(X_train_arr,y_train_arr)
+
+            # Carry out predictions and evaluate model performance
+            y_pred = model.predict(X_test_arr)
+
+            r2 = r2_score(y_test_arr,y_pred)
+            mae = mean_absolute_error(y_test_arr,y_pred)
+            mse = mean_squared_error(y_test_arr,y_pred)
+
+            scores = [r2,mae,mse]
+
+        return scores
 
 # Individual regressor child classes
     
@@ -88,12 +131,22 @@ class DecisionTreeWrapper(Regressor):
 
     def init_model(self):
 
+        #Hyperparams
+        criterion = self.kwargs.get('criterion','squared_error')
         max_depth = self.kwargs.get('max_depth',None)
+        min_samples_split = self.kwargs.get('min_samples_split',2)
+        min_samples_leaf = self.kwargs.get('min_samples_leaf',1)
+        min_impurity_decrease = self.kwargs.get('min_impurity_decrease',0)
+        random_state = self.kwargs.get('random_state',2024)
+
 
         if max_depth is None:
             raise ValueError('Max_depth is required for Decision Tree Regressor')
         
-        return DecisionTreeRegressor(max_depth=max_depth, random_state=self.kwargs.get('random_state',2024))
+        return DecisionTreeRegressor(criterion=criterion,
+                                     max_depth=max_depth, min_samples_split=min_samples_split, 
+                                     min_samples_leaf=min_samples_leaf, min_impurity_decrease=min_impurity_decrease,
+                                     random_state = random_state)
     
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
@@ -107,11 +160,12 @@ class XGBoostWrapper(Regressor):
 
         max_depth = self.kwargs.get('max_depth',None)
         n_estimators = self.kwargs.get('n_estimators',None)
+        random_state = self.kwargs.get('random_state',2024)
 
         if max_depth is None or n_estimators is None:
             raise ValueError('Missing input arguments: Max_depth/n_estimators')
         
-        return XGBRegressor(max_depth=max_depth, n_estimators = n_estimators , random_state=self.kwargs.get('random_state',2024))
+        return XGBRegressor(max_depth=max_depth, n_estimators = n_estimators , random_state=random_state)
     
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
@@ -124,11 +178,12 @@ class RandomForestWrapper(Regressor):
     def init_model(self):
 
         n_estimators = self.kwargs.get('n_estimators',None)
+        random_state = self.kwargs.get('random_state',2024)
 
         if n_estimators is None:
             raise ValueError('n_estimators is required for Random Forest Regressor')
         
-        return RandomForestRegressor(n_estimators = n_estimators, random_state=self.kwargs.get('random_state',2024))
+        return RandomForestRegressor(n_estimators = n_estimators, random_state=random_state)
     
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
@@ -174,7 +229,7 @@ def main():
     # Load data to process
     path = PathConfig()
 
-    case = input('Select case to load data for model train and deployment (sp_geom, geom, surf): ')
+    case = 'sp_geom'
     label_package = []
     data_packs = []
 
@@ -203,8 +258,6 @@ def main():
 
             data_pack = pd.read_pickle(data_path)           
             data_packs.append(data_pack)
-
-    X_train, y_train, X_test, y_test = data_packs[:4]
     
     ## Regressor instances, labels and hyperparameters
     
@@ -218,10 +271,16 @@ def main():
                     'svm': SVMWrapper,
                     'knn': KNNWrapper}
     
-    hyperparameters = {'dt': {'max_depth': 5}, 'xgb': {'max_depth': 5, 'n_estimators': 100}, 
-                    'rf': {'n_estimators': 100},
-                    'svm': {'C': 1, 'epsilon': 0.1},
-                    'knn': {'n_neighbours': 10}}
+    hyperparameters = {
+        'dt': {'criterion': 'squared_error',
+                'max_depth': 5,
+                'min_samples_split': 2,
+                'min_samples_leaf': 1,
+                'min_impurity_decrease': 0}, 
+        'xgb': {'max_depth': 5, 'n_estimators': 100}, 
+        'rf': {'n_estimators': 100},
+        'svm': {'C': 1, 'epsilon': 0.1},
+        'knn': {'n_neighbours': 10}}
     
     # Model selection from user input
     model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn): ')
@@ -233,16 +292,18 @@ def main():
 
     model_label = model_labels.get(model_choice)
 
+    kfold_choice = input('Carry out K-fold cross validation? (y/n):  ')
+
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
 
+    # Getting regressor object from wrapper
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    r2, mae, mse = model_instance.model_eval(X_train = X_train, y_train = y_train, 
-                                             X_test = X_test, y_test = y_test, model=model, PCA=pca)
+    scores = model_instance.model_eval(data_packs = data_packs, model=model, PCA=pca, kfold = kfold_choice)
     
-    print(r2)
+    print(scores)
  
 
 if __name__ == "__main__":
