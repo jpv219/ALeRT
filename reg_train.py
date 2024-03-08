@@ -19,6 +19,7 @@ from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.model_selection import RepeatedKFold, cross_validate
+import joblib
 
 
 class PathConfig:
@@ -42,27 +43,37 @@ class PathConfig:
     @property
     def label_datapath(self):
         return self._config['Path']['doe']
+    
+    @property
+    def model_savepath(self):
+        return self._config['Path']['models']
 
 # REGRESSOR PARENT CLASS
 
-class Regressor(ABC):
+class Regressor(ABC,PathConfig):
     """Abstract base class for regression models."""
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+        super().__init__()
 
     @abstractmethod
     def init_model(self):
         """Initialize the regression model."""
         pass
 
-    def kfold_cv(self,X,y,model):
+    def kfold_cv(self,X,y,model,label):
 
         # number of folds to try as hyperparameter for the cross validation
-        folds = range(2,4)
+        kfolds=50
+        folds = range(2,kfolds)
 
         # List to store all metrics per kfolds cross validates
         results = {f'fold_{fold}':{} for fold in folds}
+
+        best_model = None
+        best_score = float('-inf')  # Initialize with a very low value
+        tolerance = 0.01
 
         for k in folds:
 
@@ -76,6 +87,7 @@ class Regressor(ABC):
             
             scores = cross_validate(model, X, y, scoring=score_metrics,cv=cv, n_jobs=4,verbose=1)
 
+            # Store the metrics obtained for each kfold cross validation
             for metric in scores.keys():
                 fold_results[metric] = {'mean' : np.mean(scores[metric]),
                                         'min': np.mean(scores[metric]) - scores[metric].min(),
@@ -83,7 +95,23 @@ class Regressor(ABC):
                 
             results[f'fold_{k}'].update(fold_results)
         
-        return results
+            # Evaluate model performance vs. previous once to update best model so far
+            if fold_results['test_neg_mean_squared_error']['mean'] > best_score:
+                best_score = fold_results['test_neg_mean_squared_error']['mean']
+                best_model = model
+
+            # Check if MSE has stopped improving and stop the loop
+            stop_crit = abs((results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] - results[f'fold_{k-1}']['test_neg_mean_squared_error']['mean'])/results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] if k>2 else 0)
+            
+            if k>2 and stop_crit<tolerance:
+                folds_to_drop = [f'fold_{k}' for k in range(k+1,kfolds)]
+                final_results = {key: value for key,value in results.items() if key not in folds_to_drop}
+                break
+        
+        # Save best model obtained
+        joblib.dump(best_model,os.path.join(self.model_savepath, f'{label}_best_kfold_model.pkl'))
+        
+        return final_results
         
 
     def model_eval(self, **kwargs):
@@ -92,6 +120,7 @@ class Regressor(ABC):
         pca = self.kwargs.get('PCA')
         model = self.kwargs.get('model')
         kfold = self.kwargs.get('kfold')
+        label = self.kwargs.get('label')
 
         # Reading data arrays for model fit and eval
         data_packs = self.kwargs.get('data_packs',None)
@@ -110,7 +139,7 @@ class Regressor(ABC):
             X = np.concatenate((X_train_arr,X_test_arr),axis=0)
             y = np.concatenate((y_train_arr, y_test_arr), axis=0)
 
-            scores = self.kfold_cv(X,y,model)
+            scores = self.kfold_cv(X,y,model,label)
 
         else:
 
@@ -298,7 +327,7 @@ def main():
 
     model_label = model_labels.get(model_choice)
 
-    kfold_choice = input('Carry out K-fold cross validation? (y/n):  ')
+    kfold_choice = input('Carry out K-fold cross validation? (y/n): ')
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
@@ -307,7 +336,8 @@ def main():
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    scores = model_instance.model_eval(data_packs = data_packs, model=model, PCA=pca, kfold = kfold_choice)
+    scores = model_instance.model_eval(data_packs = data_packs, model=model, 
+                                       PCA=pca, kfold = kfold_choice,label = model_label)
     
     print(scores)
  
