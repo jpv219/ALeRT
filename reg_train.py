@@ -18,8 +18,7 @@ from sklearn.svm import SVR
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from sklearn.model_selection import RepeatedKFold
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import RepeatedKFold, cross_validate
 
 
 class PathConfig:
@@ -60,24 +59,31 @@ class Regressor(ABC):
     def kfold_cv(self,X,y,model):
 
         # number of folds to try as hyperparameter for the cross validation
-        folds = range(2,3)
-        # Lists to store accuracy metrics for each kfold cv
-        means = []
-        mins = []
-        max = []
+        folds = range(2,4)
+
+        # List to store all metrics per kfolds cross validates
+        results = {f'fold_{fold}':{} for fold in folds}
 
         for k in folds:
+
+            fold_results = {}
+
+            #Cross validation set splitter
             cv = RepeatedKFold(n_splits=k, n_repeats=5)
 
-            scores = cross_val_score(model, X, y, scoring='accuracy',cv=cv, n_jobs=1,verbose=1)
+            # Extract detailed scores and performance per model
+            score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error']
+            
+            scores = cross_validate(model, X, y, scoring=score_metrics,cv=cv, n_jobs=4,verbose=1)
 
-            means.append(np.mean(scores))
-            mins.append(np.mean(scores) - scores.min())
-            max.append(scores.max() - np.mean(scores))
-
-        print(means)
+            for metric in scores.keys():
+                fold_results[metric] = {'mean' : np.mean(scores[metric]),
+                                        'min': np.mean(scores[metric]) - scores[metric].min(),
+                                        'max' : scores[metric].max() - np.mean(scores[metric])}
+                
+            results[f'fold_{k}'].update(fold_results)
         
-        return means
+        return results
         
 
     def model_eval(self, **kwargs):
