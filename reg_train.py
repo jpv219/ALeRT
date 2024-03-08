@@ -69,7 +69,7 @@ class Regressor(ABC):
         for k in folds:
             cv = RepeatedKFold(n_splits=k, n_repeats=5)
 
-            scores = cross_val_score(model, X, y, scoring='accuracy',cv=cv, n_jobs=-1,verbose=1)
+            scores = cross_val_score(model, X, y, scoring='accuracy',cv=cv, n_jobs=1,verbose=1)
 
             means.append(np.mean(scores))
             mins.append(np.mean(scores) - scores.min())
@@ -101,8 +101,8 @@ class Regressor(ABC):
         if kfold.lower() == 'y':
 
             #Undo the split for the Kfold
-            X = np.concatenate(X_train_arr,X_test_arr,axis=1)
-            y = np.concatenate(y_train_arr, y_test_arr, axis=1)
+            X = np.concatenate((X_train_arr,X_test_arr),axis=0)
+            y = np.concatenate((y_train_arr, y_test_arr), axis=0)
 
             scores = self.kfold_cv(X,y,model)
 
