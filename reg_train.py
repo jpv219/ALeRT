@@ -17,6 +17,10 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
+from keras.models import Sequential
+from keras.layers import InputLayer, Dense
+from scikeras.wrappers import KerasRegressor
+import tensorflow as tf
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.model_selection import RepeatedKFold, cross_validate
 import joblib
@@ -248,6 +252,7 @@ class KNNWrapper(Regressor):
 
     def init_model(self):
         
+        #Hyperparams
         n_neighbours = self.kwargs.get('n_neighbours', None)
 
         if n_neighbours is None:
@@ -257,6 +262,55 @@ class KNNWrapper(Regressor):
     
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
+
+class MLPWrapper(Regressor):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+    
+    def init_model(self):
+        net = Sequential()
+
+        #Hyperparams
+        n_dense_layers = self.kwargs.get('n_dense', 2)
+        n_shallow_layers = self.kwargs.get('n_shallow',2)
+        n_nodes_dense = self.kwargs.get('n_nodes_d',128)
+        n_nodes_shallow = self.kwargs.get('n_nodes_s', 64)
+        epochs = self.kwargs.get('n_epochs', 100)
+        batch_size = self.kwargs.get('batch_size', 1)
+        act_fn = self.kwargs.get('act_fn', 'relu')
+
+        # Feature dimensions
+        input_shape = self.kwargs.get('input_size',None)
+        output_shape = self.kwargs.get('output_size', None)
+
+        # Input layer
+        net.add(InputLayer(input_shape=(input_shape,)))
+
+        # Dense layers, with more nodes per layer
+        for _ in range(n_dense_layers):
+            net.add(Dense(n_nodes_dense,activation=act_fn))
+
+        # Shallow layers, with less nodes per layer
+        for _ in range(n_shallow_layers):
+            net.add(Dense(n_nodes_shallow,activation=act_fn))
+
+        # Output layer
+        net.add(Dense(output_shape,activation='softmax'))
+
+        net.compile(optimizer= 'adam', loss = 'mean_squared_error', metrics=['mae', 'mse', self.r_squared])
+
+        return KerasRegressor(model = net, epochs = epochs, 
+                              batch_size = batch_size,shuffle=True,verbose=2)
+    
+    def model_eval(self, **kwargs):
+        return super().model_eval(**kwargs)
+    
+    # custom R2 metric for Keras scikit Regressor fit
+    def r_squared(self,y_true,y_pred):
+        SS_res =  tf.reduce_sum(tf.square(y_true - y_pred))
+        SS_tot = tf.reduce_sum(tf.square(y_true - tf.reduce_mean(y_true)))
+        return 1 - SS_res / (SS_tot + tf.keras.backend.epsilon())
 
 
 def main():
@@ -296,15 +350,19 @@ def main():
     
     ## Regressor instances, labels and hyperparameters
     
-    model_labels = {'dt': 'Decision Tree', 'xgb': 'XGBoost', 
+    model_labels = {'dt': 'Decision Tree', 
+                    'xgb': 'XGBoost', 
                     'rf': 'Random Forest',
                     'svm': 'Support Vector Machine',
-                    'knn': 'K-Nearest Neighbours'}
+                    'knn': 'K-Nearest Neighbours',
+                    'mlp': 'Multi-Layer Perceptron'}
     
-    wrapper_dict = {'dt': DecisionTreeWrapper, 'xgb': XGBoostWrapper, 
+    wrapper_dict = {'dt': DecisionTreeWrapper, 
+                    'xgb': XGBoostWrapper, 
                     'rf': RandomForestWrapper,
                     'svm': SVMWrapper,
-                    'knn': KNNWrapper}
+                    'knn': KNNWrapper,
+                    'mlp': MLPWrapper}
     
     hyperparameters = {
         'dt': {'criterion': 'squared_error',
@@ -315,10 +373,20 @@ def main():
         'xgb': {'max_depth': 5, 'n_estimators': 100}, 
         'rf': {'n_estimators': 100},
         'svm': {'C': 1, 'epsilon': 0.1},
-        'knn': {'n_neighbours': 10}}
+        'knn': {'n_neighbours': 10},
+        'mlp': {'n_dense' : 2,
+                'n_shallow': 2,
+                'n_nodes_d': 128,
+                'n_nodes_s': 64,
+                'n_epochs' : 100,
+                'batch_size' : 1,
+                'act_fn': 'relu',
+                'input_size': data_packs[0].shape[-1],
+                'output_size': data_packs[1].shape[-1]}
+                }
     
     # Model selection from user input
-    model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn): ')
+    model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp): ')
 
     # selecting corresponding wrapper
     wrapper_model = wrapper_dict.get(model_choice)

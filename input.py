@@ -266,7 +266,7 @@ def main():
         #selected variables to preserve
         out_idx_list = [int(x) for x in out_idx.split(',')]
 
-        y_df = df[df.columns[out_idx_list]]
+        y_df = df[df.columns[out_idx_list]].copy()
 
     #Scale input and output features
     scaled_data = dt_processor.scale_data([X_df,y_df])
