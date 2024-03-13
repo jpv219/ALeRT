@@ -19,12 +19,14 @@ from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from keras.models import Sequential
 from keras.layers import InputLayer, Dense
+from keras.optimizers import Adam
 from scikeras.wrappers import KerasRegressor
 import tensorflow as tf
 #Model metrics and utilities
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.model_selection import RepeatedKFold, cross_validate
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+from keras.metrics import R2Score
 import joblib
 
 ############################# PATH UTILITIES ##############################################
@@ -146,22 +148,29 @@ class Regressor(ABC,PathConfig):
         X_test_arr = X_test.to_numpy()
         y_test_arr = y_test.to_numpy()
 
-        # Carry out repeated Kfold cross validation
+        # Carry out repeated Kfold cross validation only on train sets
         if kfold.lower() == 'y':
 
-            #Undo the split for the Kfold
-            X = np.concatenate((X_train_arr,X_test_arr),axis=0)
-            y = np.concatenate((y_train_arr, y_test_arr), axis=0)
-
-            scores = self.kfold_cv(X,y,model,label)
+            scores = self.kfold_cv(X_train_arr,y_train_arr,model,label)
 
         else:
 
-            # Fit model from wrapper
-            model.fit(X_train_arr,y_train_arr)
+            if isinstance(self,MLP):
+            
+                # Add MLP specific hyperparameters
+                epochs = self.kwargs.get('n_epochs', 1)
+                batch_size = self.kwargs.get('batch_size', 1)
+                
+                # Call model fit function
+                tr_model = self.fit_model(X_train_arr,y_train_arr,model,epochs = epochs, batch_size = batch_size)
+
+            else:
+
+                # Call model fit function
+                tr_model = self.fit_model(X_train_arr,y_train_arr,model)
 
             # Carry out predictions and evaluate model performance
-            y_pred = model.predict(X_test_arr)
+            y_pred = tr_model.predict(X_test_arr)
 
             r2 = r2_score(y_test_arr,y_pred)
             mae = mean_absolute_error(y_test_arr,y_pred)
@@ -170,9 +179,76 @@ class Regressor(ABC,PathConfig):
             scores = [r2,mae,mse]
 
         return scores
+    
+    def fit_model(self,X_train,y_train,model,**kwargs):
 
-class MLP(ABC,PathConfig):
-    pass
+        # Fit model from native sklearn wrapper and return trained model
+        model.fit(X_train,y_train)
+
+        return model
+
+############################# MLP PARENT CLASS ###########################################
+
+class MLP(Regressor):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+    
+    @abstractmethod
+    def init_model(self):
+        """Initialize the regression model."""
+        pass
+
+    
+    # Build net architecture without compiling, for later custom or sklearn pipeline handling
+    def build_net(self):
+
+        net = Sequential()
+        
+        #Hyperparams
+        n_dense_layers = self.kwargs.get('n_dense', 2)
+        n_shallow_layers = self.kwargs.get('n_shallow',2)
+        n_nodes_dense = self.kwargs.get('n_nodes_d',128)
+        n_nodes_shallow = self.kwargs.get('n_nodes_s', 64)
+        act_fn = self.kwargs.get('act_fn', 'relu')
+        lr = self.kwargs.get('lr',0.001)
+
+        # Feature dimensions
+        input_shape = self.kwargs.get('input_size',None)
+        output_shape = self.kwargs.get('output_size', None)
+
+        # Input layer
+        net.add(InputLayer(shape=(input_shape,)))
+
+        # Dense layers, with more nodes per layer
+        for _ in range(n_dense_layers):
+            net.add(Dense(n_nodes_dense,activation=act_fn))
+
+        # Shallow layers, with less nodes per layer
+        for _ in range(n_shallow_layers):
+            net.add(Dense(n_nodes_shallow,activation=act_fn))
+
+        # Output layer
+        net.add(Dense(output_shape,activation=act_fn))
+
+        # Network training utilities
+        optimizer = Adam(learning_rate=lr)
+
+        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics=['mae', 'mse', R2Score()])
+
+        return net
+
+    def fit_model(self,X_train,y_train,model,**kwargs):
+
+        epochs = self.kwargs.get('n_epochs', 1)
+        batch_size = self.kwargs.get('batch_size', 1)
+
+        scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.00001)
+        
+        # Fit Keras native model
+        model.fit(X_train,y_train,validation_split = 0.3,batch_size = batch_size, epochs=epochs, verbose=1, callbacks = [scheduler])
+
+        return model
 
 ############################# REGRESSOR CHILD CLASSES ###################################
     
@@ -276,54 +352,33 @@ class KNNWrapper(Regressor):
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
 
-class MLPRegressorWrapper(Regressor):
+class MLPRegressorWrapper(MLP):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
     
     def init_model(self):
-        net = Sequential()
+        
+        # wrap Keras net as a sklearn regressor object
+        net = self.build_net()
 
-        #Hyperparams
-        n_dense_layers = self.kwargs.get('n_dense', 2)
-        n_shallow_layers = self.kwargs.get('n_shallow',2)
-        n_nodes_dense = self.kwargs.get('n_nodes_d',128)
-        n_nodes_shallow = self.kwargs.get('n_nodes_s', 64)
-        epochs = self.kwargs.get('n_epochs', 100)
-        batch_size = self.kwargs.get('batch_size', 1)
-        act_fn = self.kwargs.get('act_fn', 'relu')
-
-        # Feature dimensions
-        input_shape = self.kwargs.get('input_size',None)
-        output_shape = self.kwargs.get('output_size', None)
-
-        # Input layer
-        net.add(InputLayer(input_shape=(input_shape,)))
-
-        # Dense layers, with more nodes per layer
-        for _ in range(n_dense_layers):
-            net.add(Dense(n_nodes_dense,activation=act_fn))
-
-        # Shallow layers, with less nodes per layer
-        for _ in range(n_shallow_layers):
-            net.add(Dense(n_nodes_shallow,activation=act_fn))
-
-        # Output layer
-        net.add(Dense(output_shape,activation=act_fn))
-
-        net.compile(optimizer= 'adam', loss = 'mean_squared_error', metrics=['mae', 'mse'])
-
-        return KerasRegressor(model = net, epochs = epochs, 
-                              batch_size = batch_size,shuffle=True,verbose=2)
+        return KerasRegressor(model = net,verbose=1)
     
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
 
-class MLPWrapper(Regressor):
+class MLPWrapper(MLP):
     
-    def kfold_cv(X,y,net,label):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
-        path = PathConfig()
+    def init_model(self):
+        return self.build_net()
+    
+    def model_eval(self, **kwargs):
+        return super().model_eval(**kwargs)
+    
+    def kfold_cv(self,X,y,net,label):
 
         # number of folds to try as hyperparameter for the cross validation
         kfolds=4
@@ -339,34 +394,47 @@ class MLPWrapper(Regressor):
             kfold_results = {}
             fold_result = {}
 
-            checkpoint_dir = os.path.join(path.model_savepath, f'{label}_{k}_folds')
+            latest_checkpoint = None
+            
+            checkpoint_dir = os.path.join(self.model_savepath, f'{label}_{k}_folds')
+
             if not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
+            else:
+                for filename in os.listdir(checkpoint_dir):
+                    file_path = os.path.join(checkpoint_dir,filename)
+                    os.remove(file_path)
         
             cv = RepeatedKFold(n_splits=k, n_repeats=5)
 
             print('-'*72)
             print(f'Starting Cross-Validation with {k} folds ...')
 
-            fold_no = 1
-            scores = [float('inf')]
+            best_val_loss = float('inf')
 
-            for train, test in cv.split(X,y):
-
+            for repeat_idx, (train, test) in enumerate(cv.split(X,y)):
+                
                 # Creating callbacks
-                checkpoint_path = os.path.join(checkpoint_dir, f'fold_{fold_no}_best.h5')
+                checkpoint_path = os.path.join(checkpoint_dir, f'repeat_{repeat_idx}_best.keras')
                 checkpoint = ModelCheckpoint(checkpoint_path, 
                                     monitor='val_loss', save_best_only= True, 
-                                verbose=1, mode='min', initial_value_threshold = scores[0])
+                                verbose=1, mode='min', initial_value_threshold = best_val_loss)
                 
                 callbacks_list = [checkpoint]
 
                 net.fit(X[train],y[train], validation_data=(X[test], y[test]), epochs = 5, batch_size = 1,
                     callbacks=callbacks_list,verbose=0)
                 
-                net.load_weights(checkpoint_path)
+                if os.path.exists(checkpoint_path):
+
+                    latest_checkpoint = checkpoint_path
                 
+                net.load_weights(latest_checkpoint)
+
                 scores = net.evaluate(X[test], y[test], verbose=0)
+
+                if scores[0]< best_val_loss:
+                    best_val_loss = scores[0]
 
                 for i, metric in enumerate(net.metrics_names):
 
@@ -374,8 +442,7 @@ class MLPWrapper(Regressor):
                         fold_result[metric].append(scores[i])
                     else:
                         fold_result[metric] = [scores[i]]
-                
-                fold_no += 1
+            
 
                 tf.keras.backend.clear_session()
             
@@ -389,7 +456,7 @@ class MLPWrapper(Regressor):
 
             print('-'*72)
             for metric in fold_result.keys():
-                print(f'Mean scores in kfold {fold_no-1}: {metric} = {kfold_results[metric]["mean"]};' )
+                print(f'Mean scores with {k} kfolds: {metric} = {kfold_results[metric]["mean"]};' )
             
             loss_score = next(iter(fold_result.keys()))
             
@@ -408,12 +475,7 @@ class MLPWrapper(Regressor):
                 final_results = results  
 
         return final_results
-    
-    # custom R2 metric 
-    def r_squared(self,y_true,y_pred):
-        SS_res =  tf.reduce_sum(tf.square(y_true - y_pred))
-        SS_tot = tf.reduce_sum(tf.square(y_true - tf.reduce_mean(y_true)))
-        return 1 - SS_res / (SS_tot + tf.keras.backend.epsilon())
+
 
 def main():
 
@@ -518,7 +580,7 @@ def main():
 
     # Regression training and evaluation
     scores = model_instance.model_eval(data_packs = data_packs, model=model, 
-                                       PCA=pca, kfold = kfold_choice,label = model_label)
+                                       PCA=pca, kfold = kfold_choice,label = model_label,**model_params)
     
     print(scores)
  
