@@ -10,7 +10,7 @@ import pandas as pd
 import configparser
 import os
 from abc import ABC, abstractmethod
-#Model imports
+#Model regression imports
 from sklearn.tree import DecisionTreeRegressor
 from xgboost import XGBRegressor
 from sklearn.ensemble import RandomForestRegressor
@@ -21,11 +21,13 @@ from keras.models import Sequential
 from keras.layers import InputLayer, Dense
 from scikeras.wrappers import KerasRegressor
 import tensorflow as tf
+#Model metrics and utilities
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.model_selection import RepeatedKFold, cross_validate
+from keras.callbacks import ModelCheckpoint
 import joblib
 
-
+############################# PATH UTILITIES ##############################################
 class PathConfig:
 
     def __init__(self):
@@ -52,7 +54,7 @@ class PathConfig:
     def model_savepath(self):
         return self._config['Path']['models']
 
-# REGRESSOR PARENT CLASS
+############################# ABSTRACT PARENT CLASS ######################################
 
 class Regressor(ABC,PathConfig):
     """Abstract base class for regression models."""
@@ -75,12 +77,14 @@ class Regressor(ABC,PathConfig):
         # List to store all metrics per kfolds cross validates
         results = {f'fold_{fold}':{} for fold in folds}
 
+        # Empty containers to store best model and track kfold sensitivity performance
         best_model = None
         best_score = float('-inf')  # Initialize with a very low value
         tolerance = 0.01
 
         for k in folds:
 
+            # Container to store results per k-fold size iteration
             fold_results = {}
 
             #Cross validation set splitter
@@ -89,35 +93,41 @@ class Regressor(ABC,PathConfig):
             # Extract detailed scores and performance per model
             score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error']
             
-            scores = cross_validate(model, X, y, scoring=score_metrics,cv=cv, n_jobs=4,verbose=1)
+            scores = cross_validate(model, X, y, scoring=score_metrics,cv=cv, n_jobs=4,verbose=1) #number of folds X number of repeats
 
-            # Store the metrics obtained for each kfold cross validation
+            # Store the overall metrics obtained for the k-fold cross validation instance tested
             for metric in scores.keys():
                 fold_results[metric] = {'mean' : np.mean(scores[metric]),
-                                        'min': np.mean(scores[metric]) - scores[metric].min(),
-                                        'max' : scores[metric].max() - np.mean(scores[metric])}
+                                        'min': scores[metric].min(),
+                                        'max' : scores[metric].max()}
                 
+            # Update overall results with k-fold instance results
             results[f'fold_{k}'].update(fold_results)
         
-            # Evaluate model performance vs. previous once to update best model so far
+            # Evaluate kfold performance vs. previous k-size instace once to update best model so far
             if fold_results['test_neg_mean_squared_error']['mean'] > best_score:
                 best_score = fold_results['test_neg_mean_squared_error']['mean']
                 best_model = model
 
             # Check if MSE has stopped improving and stop the loop
-            stop_crit = abs((results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] - results[f'fold_{k-1}']['test_neg_mean_squared_error']['mean'])/results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] if k>2 else 0)
+            stop_crit = abs((results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] - 
+                             results[f'fold_{k-1}']['test_neg_mean_squared_error']['mean'])
+                             /results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] 
+                            if k>2 else 0)
             
             if k>2 and stop_crit<tolerance:
                 folds_to_drop = [f'fold_{k}' for k in range(k+1,kfolds)]
                 final_results = {key: value for key,value in results.items() if key not in folds_to_drop}
                 break
+
+            else:
+                final_results = results
         
         # Save best model obtained
         joblib.dump(best_model,os.path.join(self.model_savepath, f'{label}_best_kfold_model.pkl'))
         
         return final_results
         
-
     def model_eval(self, **kwargs):
         self.kwargs = kwargs
 
@@ -161,7 +171,10 @@ class Regressor(ABC,PathConfig):
 
         return scores
 
-# Individual regressor child classes
+class MLP(ABC,PathConfig):
+    pass
+
+############################# REGRESSOR CHILD CLASSES ###################################
     
 class DecisionTreeWrapper(Regressor):
 
@@ -263,7 +276,7 @@ class KNNWrapper(Regressor):
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
 
-class MLPWrapper(Regressor):
+class MLPRegressorWrapper(Regressor):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -296,22 +309,111 @@ class MLPWrapper(Regressor):
             net.add(Dense(n_nodes_shallow,activation=act_fn))
 
         # Output layer
-        net.add(Dense(output_shape,activation='softmax'))
+        net.add(Dense(output_shape,activation=act_fn))
 
-        net.compile(optimizer= 'adam', loss = 'mean_squared_error', metrics=['mae', 'mse', self.r_squared])
+        net.compile(optimizer= 'adam', loss = 'mean_squared_error', metrics=['mae', 'mse'])
 
         return KerasRegressor(model = net, epochs = epochs, 
                               batch_size = batch_size,shuffle=True,verbose=2)
     
     def model_eval(self, **kwargs):
         return super().model_eval(**kwargs)
+
+class MLPWrapper(Regressor):
     
-    # custom R2 metric for Keras scikit Regressor fit
+    def kfold_cv(X,y,net,label):
+
+        path = PathConfig()
+
+        # number of folds to try as hyperparameter for the cross validation
+        kfolds=4
+        folds = range(2,kfolds)
+
+        # List to store all metrics per kfolds cross validates
+        results = {f'fold_{fold}':{} for fold in folds}
+
+        tolerance = 0.01
+
+        for k in folds:
+
+            kfold_results = {}
+            fold_result = {}
+
+            checkpoint_dir = os.path.join(path.model_savepath, f'{label}_{k}_folds')
+            if not os.path.exists(checkpoint_dir):
+                os.makedirs(checkpoint_dir)
+        
+            cv = RepeatedKFold(n_splits=k, n_repeats=5)
+
+            print('-'*72)
+            print(f'Starting Cross-Validation with {k} folds ...')
+
+            fold_no = 1
+            scores = [float('inf')]
+
+            for train, test in cv.split(X,y):
+
+                # Creating callbacks
+                checkpoint_path = os.path.join(checkpoint_dir, f'fold_{fold_no}_best.h5')
+                checkpoint = ModelCheckpoint(checkpoint_path, 
+                                    monitor='val_loss', save_best_only= True, 
+                                verbose=1, mode='min', initial_value_threshold = scores[0])
+                
+                callbacks_list = [checkpoint]
+
+                net.fit(X[train],y[train], validation_data=(X[test], y[test]), epochs = 5, batch_size = 1,
+                    callbacks=callbacks_list,verbose=0)
+                
+                net.load_weights(checkpoint_path)
+                
+                scores = net.evaluate(X[test], y[test], verbose=0)
+
+                for i, metric in enumerate(net.metrics_names):
+
+                    if metric in fold_result:
+                        fold_result[metric].append(scores[i])
+                    else:
+                        fold_result[metric] = [scores[i]]
+                
+                fold_no += 1
+
+                tf.keras.backend.clear_session()
+            
+            # Store the metrics obtained for each kfold cross validation
+            for metric in fold_result.keys():
+                kfold_results[metric] = {'mean' : np.mean(fold_result[metric]),
+                                        'min': min(fold_result[metric]),
+                                        'max' : max(fold_result[metric])}
+                
+            results[f'fold_{k}'].update(kfold_results)
+
+            print('-'*72)
+            for metric in fold_result.keys():
+                print(f'Mean scores in kfold {fold_no-1}: {metric} = {kfold_results[metric]["mean"]};' )
+            
+            loss_score = next(iter(fold_result.keys()))
+            
+            # Check if MSE has stopped improving and stop the loop
+            stop_crit = abs((results[f'fold_{k}'][loss_score]['mean'] - 
+                            results[f'fold_{k-1}'][loss_score]['mean'])
+                            /results[f'fold_{k}'][loss_score]['mean'] 
+                                if k>2 else 0)
+            
+            if k>2 and stop_crit<tolerance:
+                folds_to_drop = [f'fold_{k}' for k in range(k+1,kfolds)]
+                final_results = {key: value for key,value in results.items() if key not in folds_to_drop}
+                break
+
+            else:
+                final_results = results  
+
+        return final_results
+    
+    # custom R2 metric 
     def r_squared(self,y_true,y_pred):
         SS_res =  tf.reduce_sum(tf.square(y_true - y_pred))
         SS_tot = tf.reduce_sum(tf.square(y_true - tf.reduce_mean(y_true)))
         return 1 - SS_res / (SS_tot + tf.keras.backend.epsilon())
-
 
 def main():
 
@@ -345,23 +447,25 @@ def main():
 
         if os.path.exists(data_path):
 
-            data_pack = pd.read_pickle(data_path)           
+            data_pack = pd.read_pickle(data_path)          
             data_packs.append(data_pack)
     
     ## Regressor instances, labels and hyperparameters
     
-    model_labels = {'dt': 'Decision Tree', 
+    model_labels = {'dt': 'Decision_Tree', 
                     'xgb': 'XGBoost', 
-                    'rf': 'Random Forest',
-                    'svm': 'Support Vector Machine',
-                    'knn': 'K-Nearest Neighbours',
-                    'mlp': 'Multi-Layer Perceptron'}
+                    'rf': 'Random_Forest',
+                    'svm': 'Support_Vector_Machine',
+                    'knn': 'K_Nearest_Neighbours',
+                    'mlp_reg': 'MLP_Wrapped_Regressor',
+                    'mlp': 'Multi_Layer_Perceptron'}
     
     wrapper_dict = {'dt': DecisionTreeWrapper, 
                     'xgb': XGBoostWrapper, 
                     'rf': RandomForestWrapper,
                     'svm': SVMWrapper,
                     'knn': KNNWrapper,
+                    'mlp_reg': MLPRegressorWrapper,
                     'mlp': MLPWrapper}
     
     hyperparameters = {
@@ -374,6 +478,15 @@ def main():
         'rf': {'n_estimators': 100},
         'svm': {'C': 1, 'epsilon': 0.1},
         'knn': {'n_neighbours': 10},
+        'mlp_reg': {'n_dense' : 2,
+                'n_shallow': 2,
+                'n_nodes_d': 128,
+                'n_nodes_s': 64,
+                'n_epochs' : 100,
+                'batch_size' : 1,
+                'act_fn': 'relu',
+                'input_size': data_packs[0].shape[-1],
+                'output_size': data_packs[1].shape[-1]},
         'mlp': {'n_dense' : 2,
                 'n_shallow': 2,
                 'n_nodes_d': 128,
@@ -386,7 +499,7 @@ def main():
                 }
     
     # Model selection from user input
-    model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp): ')
+    model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp_reg, mlp): ')
 
     # selecting corresponding wrapper
     wrapper_model = wrapper_dict.get(model_choice)
