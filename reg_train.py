@@ -10,6 +10,7 @@ import pandas as pd
 import configparser
 import os
 from abc import ABC, abstractmethod
+from matplotlib import pyplot
 #Model regression imports
 from sklearn.tree import DecisionTreeRegressor
 from xgboost import XGBRegressor
@@ -199,7 +200,6 @@ class MLP(Regressor):
         """Initialize the regression model."""
         pass
 
-    
     # Build net architecture without compiling, for later custom or sklearn pipeline handling
     def build_net(self):
 
@@ -422,8 +422,9 @@ class MLPWrapper(MLP):
                 
                 callbacks_list = [checkpoint]
 
-                net.fit(X[train],y[train], validation_data=(X[test], y[test]), epochs = 5, batch_size = 1,
-                    callbacks=callbacks_list,verbose=0)
+                history = net.fit(X[train],y[train], 
+                                validation_data=(X[test], y[test]), epochs = 5, batch_size = 1,
+                                callbacks=callbacks_list,verbose=0)
                 
                 if os.path.exists(checkpoint_path):
 
@@ -435,14 +436,15 @@ class MLPWrapper(MLP):
 
                 if scores[0]< best_val_loss:
                     best_val_loss = scores[0]
-
-                for i, metric in enumerate(net.metrics_names):
-
-                    if metric in fold_result:
-                        fold_result[metric].append(scores[i])
+                    
+                for i, metric in enumerate(history.history.keys()):
+                    if i < len(scores):
+                        if metric in fold_result:
+                            fold_result[metric].append(scores[i])
+                        else:
+                            fold_result[metric] = [scores[i]]
                     else:
-                        fold_result[metric] = [scores[i]]
-            
+                        break
 
                 tf.keras.backend.clear_session()
             
