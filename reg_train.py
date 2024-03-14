@@ -73,21 +73,22 @@ class Regressor(ABC,PathConfig):
 
     def kfold_cv(self,X,y,model,label):
 
-        # number of folds to try as hyperparameter for the cross validation
+        # number of kfolds to try as hyperparameter for the cross validation sensitivity
         kfolds=50
-        folds = range(2,kfolds)
+        folds = range(2,kfolds+1)
 
-        # List to store all metrics per kfolds cross validates
-        results = {f'fold_{fold}':{} for fold in folds}
+        # List to store all metrics per kfold cross validation run
+        cv_results = {f'kfold_{fold}':{} for fold in folds}
 
-        # Empty containers to store best model and track kfold sensitivity performance
+        # Empty containers to track best model overall and each kfold run performance
         best_model = None
         best_score = float('-inf')  # Initialize with a very low value
+        best_fold_idx = 0
         tolerance = 0.01
 
         for k in folds:
 
-            # Container to store results per k-fold size iteration
+            # Container to store results per k-fold cv run
             fold_results = {}
 
             #Cross validation set splitter
@@ -98,40 +99,47 @@ class Regressor(ABC,PathConfig):
             
             scores = cross_validate(model, X, y, scoring=score_metrics,cv=cv, n_jobs=4,verbose=1) #number of folds X number of repeats
 
-            # Store the overall metrics obtained for the k-fold cross validation instance tested
+            # Store the overall metrics obtained for the k cross validation run tested
             for metric in scores.keys():
                 fold_results[metric] = {'mean' : np.mean(scores[metric]),
                                         'min': scores[metric].min(),
                                         'max' : scores[metric].max()}
                 
-            # Update overall results with k-fold instance results
-            results[f'fold_{k}'].update(fold_results)
+            # Update overall results with k-fold cv instance results
+            cv_results[f'kfold_{k}'].update(fold_results)
         
-            # Evaluate kfold performance vs. previous k-size instace once to update best model so far
+            # Evaluate kfold cv run performance vs. previous k-size instance once to update best model so far
             if fold_results['test_neg_mean_squared_error']['mean'] > best_score:
                 best_score = fold_results['test_neg_mean_squared_error']['mean']
+                best_fold_idx = k
                 best_model = model
 
             # Check if MSE has stopped improving and stop the loop
-            stop_crit = abs((results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] - 
-                             results[f'fold_{k-1}']['test_neg_mean_squared_error']['mean'])
-                             /results[f'fold_{k}']['test_neg_mean_squared_error']['mean'] 
-                            if k>2 else 0)
+            stop_crit = abs((cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] - 
+                             cv_results[f'kfold_{k-1}']['test_neg_mean_squared_error']['mean'])
+                             /cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] 
+                            if k>2 else 1)
             
+            # Early stopping algorithm
             if k>2 and stop_crit<tolerance:
-                folds_to_drop = [f'fold_{k}' for k in range(k+1,kfolds)]
-                final_results = {key: value for key,value in results.items() if key not in folds_to_drop}
+                # Drop all future kfold runs if algorithm chooses to stop
+                folds_to_drop = [f'kfold_{k}' for k in range(k+1,kfolds+1)]
+                for key in folds_to_drop:
+                    if key in cv_results:
+                        del cv_results[key]
                 break
-
-            else:
-                final_results = results
         
         # Save best model obtained
-        joblib.dump(best_model,os.path.join(self.model_savepath, f'{label}_best_kfold_model.pkl'))
+        joblib.dump(best_model,os.path.join(self.model_savepath, label, f'{label}_best_model_{best_fold_idx}_folds.pkl'))
+
+        # Save metrics log for all kfold runs carried out
+        with open(os.path.join(self.model_savepath, label, f'{label}_kfoldcv_scores.txt'), 'w') as file :
+            for k, fold_run in enumerate(cv_results.keys()):
+                file.write(f'Results for cv run with k={k+2}: {cv_results[fold_run]}' + '\n')
         
-        return final_results
+        return {f'{best_fold_idx}_fold scores' : cv_results[f'kfold_{best_fold_idx}']}
         
-    def model_eval(self, **kwargs):
+    def model_build(self, **kwargs):
         self.kwargs = kwargs
 
         pca = self.kwargs.get('PCA')
@@ -276,8 +284,8 @@ class DecisionTreeWrapper(Regressor):
                                      min_samples_leaf=min_samples_leaf, min_impurity_decrease=min_impurity_decrease,
                                      random_state = random_state)
     
-    def model_eval(self, **kwargs):
-        return super().model_eval(**kwargs)
+    def model_build(self, **kwargs):
+        return super().model_build(**kwargs)
 
 class XGBoostWrapper(Regressor):
 
@@ -295,8 +303,8 @@ class XGBoostWrapper(Regressor):
         
         return XGBRegressor(max_depth=max_depth, n_estimators = n_estimators , random_state=random_state)
     
-    def model_eval(self, **kwargs):
-        return super().model_eval(**kwargs)
+    def model_build(self, **kwargs):
+        return super().model_build(**kwargs)
     
 class RandomForestWrapper(Regressor):
 
@@ -313,8 +321,8 @@ class RandomForestWrapper(Regressor):
         
         return RandomForestRegressor(n_estimators = n_estimators, random_state=random_state)
     
-    def model_eval(self, **kwargs):
-        return super().model_eval(**kwargs)
+    def model_build(self, **kwargs):
+        return super().model_build(**kwargs)
     
 class SVMWrapper(Regressor):
 
@@ -331,8 +339,8 @@ class SVMWrapper(Regressor):
 
         return MultiOutputRegressor(SVR(C=c_coef,epsilon=epsilon))
     
-    def model_eval(self, **kwargs):
-        return super().model_eval(**kwargs)
+    def model_build(self, **kwargs):
+        return super().model_build(**kwargs)
 
 class KNNWrapper(Regressor):
 
@@ -349,8 +357,8 @@ class KNNWrapper(Regressor):
         
         return KNeighborsRegressor(n_neighbors=n_neighbours)
     
-    def model_eval(self, **kwargs):
-        return super().model_eval(**kwargs)
+    def model_build(self, **kwargs):
+        return super().model_build(**kwargs)
 
 class MLPRegressorWrapper(MLP):
 
@@ -364,8 +372,8 @@ class MLPRegressorWrapper(MLP):
 
         return KerasRegressor(model = net,verbose=1)
     
-    def model_eval(self, **kwargs):
-        return super().model_eval(**kwargs)
+    def model_build(self, **kwargs):
+        return super().model_build(**kwargs)
 
 class MLPWrapper(MLP):
     
@@ -375,8 +383,8 @@ class MLPWrapper(MLP):
     def init_model(self):
         return self.build_net()
     
-    def model_eval(self, **kwargs):
-        return super().model_eval(**kwargs)
+    def model_build(self, **kwargs):
+        return super().model_build(**kwargs)
     
     def kfold_cv(self,X,y,net,label):
 
@@ -396,7 +404,7 @@ class MLPWrapper(MLP):
 
             latest_checkpoint = None
             
-            checkpoint_dir = os.path.join(self.model_savepath, f'{label}_{k}_folds')
+            checkpoint_dir = os.path.join(self.model_savepath, label, f'{k}_fold_run')
 
             if not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
@@ -581,7 +589,7 @@ def main():
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    scores = model_instance.model_eval(data_packs = data_packs, model=model, 
+    scores = model_instance.model_build(data_packs = data_packs, model=model, 
                                        PCA=pca, kfold = kfold_choice,label = model_label,**model_params)
     
     print(scores)
