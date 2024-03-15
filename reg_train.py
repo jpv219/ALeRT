@@ -82,7 +82,7 @@ class Regressor(ABC,PathConfig):
 
         # Empty containers to track best model overall and each kfold run performance
         best_model = None
-        best_score = float('-inf')  # Initialize with a very low value
+        best_score = float('inf')  # Initialize with a very large value
         best_fold_idx = 0
         tolerance = 0.01
 
@@ -101,20 +101,25 @@ class Regressor(ABC,PathConfig):
 
             # Store the overall metrics obtained for the k cross validation run tested
             for metric in scores.keys():
-                fold_results[metric] = {'mean' : np.mean(scores[metric]),
-                                        'min': scores[metric].min(),
-                                        'max' : scores[metric].max()}
+                if 'neg' in metric:
+                    scores_abs = np.abs(scores[metric])
+                else:
+                    scores_abs = scores[metric]
+                
+                fold_results[metric] = {'mean' : np.mean(scores_abs),
+                                            'min': np.min(scores_abs),
+                                            'max' : np.max(scores_abs)}
                 
             # Update overall results with k-fold cv instance results
             cv_results[f'kfold_{k}'].update(fold_results)
         
-            # Evaluate kfold cv run performance vs. previous k-size instance once to update best model so far
-            if fold_results['test_neg_mean_squared_error']['mean'] > best_score:
+            # Evaluate kfold cv run performance vs. previous best kfold run to update best model so far
+            if fold_results['test_neg_mean_squared_error']['mean'] < best_score:
                 best_score = fold_results['test_neg_mean_squared_error']['mean']
                 best_fold_idx = k
                 best_model = model
 
-            # Check if MSE has stopped improving and stop the loop
+            # Check if MSE has stopped improving from the previous kfold instance run and stop the loop
             stop_crit = abs((cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] - 
                              cv_results[f'kfold_{k-1}']['test_neg_mean_squared_error']['mean'])
                              /cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] 
@@ -142,7 +147,6 @@ class Regressor(ABC,PathConfig):
     def model_build(self, **kwargs):
         self.kwargs = kwargs
 
-        pca = self.kwargs.get('PCA')
         model = self.kwargs.get('model')
         kfold = self.kwargs.get('kfold')
         label = self.kwargs.get('label')
@@ -388,24 +392,35 @@ class MLPWrapper(MLP):
     
     def kfold_cv(self,X,y,net,label):
 
-        # number of folds to try as hyperparameter for the cross validation
-        kfolds=4
+        # number of kfolds to try as hyperparameter for the cross validation sensitivity
+        kfolds=5
         folds = range(2,kfolds)
 
         # List to store all metrics per kfolds cross validates
-        results = {f'fold_{fold}':{} for fold in folds}
+        cv_results = {f'kfold_{fold}':{} for fold in folds}
 
+        # Early stopping algorithm tolerance
         tolerance = 0.01
+        
+        # Empty containers to track best model overall and each kfold run performance
+        best_score = float('inf')  # Initialize with a very large value
+        best_fold_idx = 0
 
+        print('-'*72)
+        
         for k in folds:
 
-            kfold_results = {}
-            fold_result = {}
+            # Containers to store results per k-fold cv run
+            fold_results = {}
+            repeat_results = {}
 
+            # Initialize checkpoint holder
             latest_checkpoint = None
             
+            # Chkpt dir for each kfold instance run
             checkpoint_dir = os.path.join(self.model_savepath, label, f'{k}_fold_run')
 
+            # Create kfold run checkpoint folder and clean if previous files exist
             if not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
             else:
@@ -413,16 +428,20 @@ class MLPWrapper(MLP):
                     file_path = os.path.join(checkpoint_dir,filename)
                     os.remove(file_path)
         
+            # Crossvalidation set splitter with repeats
             cv = RepeatedKFold(n_splits=k, n_repeats=5)
 
-            print('-'*72)
             print(f'Starting Cross-Validation with {k} folds ...')
+            print('-'*72)
 
+            # initialize val_loss threshold for ModelCheckpoint
             best_val_loss = float('inf')
 
+            # Loop over CV kfold repeats and extract average values per kfold run instance
             for repeat_idx, (train, test) in enumerate(cv.split(X,y)):
                 
-                # Creating callbacks
+                print(f'Currently on repeat {repeat_idx} from k = {k} kfold run ...')
+                # Creating callbacks for repeats within a kfold run
                 checkpoint_path = os.path.join(checkpoint_dir, f'repeat_{repeat_idx}_best.keras')
                 checkpoint = ModelCheckpoint(checkpoint_path, 
                                     monitor='val_loss', save_best_only= True, 
@@ -430,62 +449,81 @@ class MLPWrapper(MLP):
                 
                 callbacks_list = [checkpoint]
 
+                # Fit network with CV split train, val sets and call checkpoint callback
                 history = net.fit(X[train],y[train], 
                                 validation_data=(X[test], y[test]), epochs = 5, batch_size = 1,
                                 callbacks=callbacks_list,verbose=0)
                 
+                # Save repeat checkpoint if it has been created  - track last repeat checkpoint created
                 if os.path.exists(checkpoint_path):
-
                     latest_checkpoint = checkpoint_path
                 
+                #Load weights from last repeat checkpoint saved
                 net.load_weights(latest_checkpoint)
 
+                # Evaluate model fit on validation set according to Kfold split
                 scores = net.evaluate(X[test], y[test], verbose=0)
 
+                # Update best val_loss obtained from all repeats in the present kfold run
                 if scores[0]< best_val_loss:
                     best_val_loss = scores[0]
                     
+                # Save network metrics previously compiled in build_net() per repeat executed
                 for i, metric in enumerate(history.history.keys()):
                     if i < len(scores):
-                        if metric in fold_result:
-                            fold_result[metric].append(scores[i])
+                        # initialize or append metric values per repeat 
+                        if metric in repeat_results:
+                            repeat_results[metric].append(scores[i])
                         else:
-                            fold_result[metric] = [scores[i]]
+                            repeat_results[metric] = [scores[i]]
                     else:
                         break
 
                 tf.keras.backend.clear_session()
+                print('-'*72)
             
-            # Store the metrics obtained for each kfold cross validation
-            for metric in fold_result.keys():
-                kfold_results[metric] = {'mean' : np.mean(fold_result[metric]),
-                                        'min': min(fold_result[metric]),
-                                        'max' : max(fold_result[metric])}
+            # Compile repeat metric scores for the current kfold cv run performed
+            for metric in repeat_results.keys():
+                fold_results[metric] = {'mean' : np.mean(repeat_results[metric]),
+                                        'min': min(repeat_results[metric]),
+                                        'max' : max(repeat_results[metric])}
                 
-            results[f'fold_{k}'].update(kfold_results)
+            # Append kfold instance run overall results
+            cv_results[f'kfold_{k}'].update(fold_results)
 
             print('-'*72)
-            for metric in fold_result.keys():
-                print(f'Mean scores with {k} kfolds: {metric} = {kfold_results[metric]["mean"]};' )
+            for metric in fold_results.keys():
+                print(f'Mean scores with {k} folds: {metric} = {fold_results[metric]["mean"]};' )
             
-            loss_score = next(iter(fold_result.keys()))
+            print('-'*72)
             
-            # Check if MSE has stopped improving and stop the loop
-            stop_crit = abs((results[f'fold_{k}'][loss_score]['mean'] - 
-                            results[f'fold_{k-1}'][loss_score]['mean'])
-                            /results[f'fold_{k}'][loss_score]['mean'] 
-                                if k>2 else 0)
+            loss_key = next(iter(fold_results.keys()))
+
+            # Evaluate kfold cv run performance vs. previous best kfold run to update best model so far
+            if fold_results[loss_key]['mean'] < best_score:
+                best_score = fold_results[loss_key]['mean']
+                best_fold_idx = k
             
+            # Check if MSE/loss has stopped improving from the previous kfold instance run and stop the loop
+            stop_crit = abs((cv_results[f'kfold_{k}'][loss_key]['mean'] - 
+                            cv_results[f'kfold_{k-1}'][loss_key]['mean'])
+                            /cv_results[f'kfold_{k}'][loss_key]['mean'] 
+                                if k>2 else 1)
+            
+            # Early stopping algorithm
             if k>2 and stop_crit<tolerance:
-                folds_to_drop = [f'fold_{k}' for k in range(k+1,kfolds)]
-                final_results = {key: value for key,value in results.items() if key not in folds_to_drop}
+                folds_to_drop = [f'kfold_{k}' for k in range(k+1,kfolds)]
+                for key in folds_to_drop:
+                    if key in cv_results:
+                        del cv_results[key]
                 break
 
-            else:
-                final_results = results  
-
-        return final_results
-
+        # Save metrics log for all kfold runs carried out
+        with open(os.path.join(self.model_savepath, label, f'{label}_kfoldcv_scores.txt'), 'w') as file :
+            for k, fold_run in enumerate(cv_results.keys()):
+                file.write(f'Results for cv run with k={k+2}: {cv_results[fold_run]}' + '\n')
+            
+        return {f'{best_fold_idx}_fold scores' : cv_results[f'kfold_{best_fold_idx}']}
 
 def main():
 
@@ -589,8 +627,8 @@ def main():
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    scores = model_instance.model_build(data_packs = data_packs, model=model, 
-                                       PCA=pca, kfold = kfold_choice,label = model_label,**model_params)
+    scores = model_instance.model_build(data_packs = data_packs, model=model 
+                                        ,kfold = kfold_choice,label = model_label,**model_params)
     
     print(scores)
  
