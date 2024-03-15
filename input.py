@@ -11,7 +11,7 @@ import ast
 import os
 import pickle
 import configparser
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler,RobustScaler
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
@@ -48,8 +48,6 @@ class DataReader(PathConfig):
         
         csv_list = []
         DOE_list = []
-        run_list = []
-        run_count = 1 # Assuming at least one run exists
 
         # data and DOE paths for the case under consideration
         csv_path = os.path.join(self.raw_datapath,self._case) #output data
@@ -77,16 +75,7 @@ class DataReader(PathConfig):
         DOE_df = pd.concat(DOE_list, ignore_index=True)
 
         # Count how many runs are stored successfully in the CSV.
-        for i in range(1,len(data_df['Run_ID'])):
-            
-            if data_df['Run_ID'].iloc[i-1] == data_df['Run_ID'].iloc[i]:
-                continue
-            else:
-                run_count +=1
-                #Extract Run_ID once a new Run is identified
-                run_list.append(data_df['Run_ID'].iloc[i-1])
-
-        run_list.append(data_df['Run_ID'].iloc[-1])
+        run_list = data_df['Run_ID'].tolist()
 
         return data_df, DOE_df, run_list
 
@@ -109,12 +98,37 @@ class DataReader(PathConfig):
         data_df_sorted = data_df_sorted.drop(columns=['Run_ID'])
 
         #Re-shaping dataframe into object arrays per index, grouping run values into lists
-        data_df_reshaped = data_df_sorted.groupby('index').agg(lambda x: x.tolist())
+        if 'sv' in self._case:
+            data_df_reshaped = data_df_sorted
+        else:
+            data_df_reshaped = data_df_sorted.groupby('index').agg(lambda x: x.tolist())
 
         # Merge input parameters (labels) with hydrodynamic data output (target)
         df = pd.concat([df_DOE_filtered,data_df_reshaped],axis=1)
 
+        for column in df.columns:
+
+                # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
+                if df[column].dtype == 'object':
+                    #Convert text lists into np arrays
+                    df[column] = df[column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
+                else:
+                    df[column] = df[column].astype(float)
+
         return df
+    
+class LogScaler:
+    def __init__(self,base=10):
+        self.base = base
+        self.log_base = np.log(self.base)
+    def fit(self, X, y=None):
+        # No operation needed during fitting
+        return self
+    def transform(self,X):
+        return np.log(X) / self.log_base
+    def fit_transform(self,X):
+        self.fit(X)
+        return self.transform(X) 
 
 class DataProcessor(PathConfig):
 
@@ -122,12 +136,17 @@ class DataProcessor(PathConfig):
         super().__init__()
         self._case = case
 
-    def scale_data(self,data_pack):
-
-        # Create a StandardScaler and fit it to the data
-        norm_scaler = MinMaxScaler(feature_range=(-1,1))
+    def scale_data(self,data_pack,scaling):
 
         scaled_data = []
+        # scaler = MinMaxScaler(feature_range=(-1,1))
+        # Create a Scaler for scaling later
+        if scaling == 'norm':
+            scaler = MinMaxScaler(feature_range=(-1,1))
+        elif scaling == 'log':
+            scaler = LogScaler(base=10)
+        elif scaling == 'robust':
+            scaler = RobustScaler(with_centering=False, with_scaling=True, quantile_range=(25.0,75.0))
 
         for df in data_pack:
 
@@ -136,24 +155,47 @@ class DataProcessor(PathConfig):
 
                 # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
                 if df[column].dtype == 'object':
-                    #Convert text lists into np arrays
-                    df[column] = df[column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
-                    df[column] = df[column].apply(lambda x: norm_scaler.fit_transform(x.reshape(-1,1)))
+                    flat_list = [ele_val for ele in df[column] for ele_val in ele]
+                    flat_arr = np.array(flat_list).reshape(-1,1)
+                    scaler.fit(flat_arr)
+                    df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
                     # reshaping back to a 1D list
                     df[column] = df[column].apply(lambda x: x.reshape(-1,))
                 else:
-                    df[column] = df[column].astype(float)
-                    df[column] = norm_scaler.fit_transform(df[column].values.reshape(-1,1))
+                    df[column] = scaler.fit_transform(df[column].values.reshape(-1,1))
                     df[column] = df[column].values.reshape(-1,)
-
-            scaled_data.append(df.copy())
+            
+            if len(data_pack) > 1:
+                scaled_data.append(df.copy())
+            else:
+                scaled_data = df.copy()
             
         return scaled_data
     
+    # Visualize data before and after scaling
+    def plot_scaling(self, original_data, scaled_data):
+        
+        fig,ax = plt.subplots(len(original_data.columns),2, figsize=(12,int(len(original_data.columns)*5)))
+        plt.subplots_adjust(hspace=0.8)
+        for i, column in enumerate(original_data.columns):
+            if original_data[column].dtype == 'object':
+                for j in original_data.index:
+                    ax[i,0].plot(original_data[column][j])
+                    ax[i,0].set_title(f'Data before: {column}')
+                    ax[i,1].plot(scaled_data[column][j])
+                    ax[i,1].set_title(f'Data after: {column}')
+            else:
+                ax[i,0].plot(original_data[column])
+                ax[i,0].set_title(f'Data before: {column}')
+                ax[i,1].plot(scaled_data[column])
+                ax[i,1].set_title(f'Data after: {column}')
+        fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{column}'),dpi=200)
+        plt.show()
+    
     def PCA_reduction(self,df,var_ratio):
     
-        # Empty Dataframe for PCs results
-        pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var']
+        # Empty Dataframe for PCs results and principal axes
+        pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var','Principal_Axes']
         pca_df = pd.DataFrame(columns=pca_labels)
 
         # Carry out expansion and PCA per array features(exclude scalar outputs if any)
@@ -188,7 +230,8 @@ class DataProcessor(PathConfig):
                 #row to add to pca_df with PCs, dominant features and explained variance
                 row_to_add = pd.Series({pca_labels[0] : f'{column}'+'_pc{}'.format(i),
                                         pca_labels[1]: col_feature_per_component[i],
-                                         pca_labels[2]: pca.explained_variance_ratio_[i]*100})
+                                        pca_labels[2]: pca.explained_variance_ratio_[i]*100,
+                                        pca_labels[3]: pca.components_[i]})
                 
                 pca_df = pd.concat([pca_df,pd.Series(row_to_add).to_frame().T],ignore_index=True)
 
@@ -198,7 +241,7 @@ class DataProcessor(PathConfig):
             plt.ylabel('Explained Variance')
             plt.title(f'{column}: [PC={n_pcs}]')
             fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_PCA_{column}'),dpi=200)
-        
+
         return df, pca_df
 
 class DataPackager(PathConfig):
@@ -231,7 +274,7 @@ class DataPackager(PathConfig):
 
 def main():
     
-    case_name = input('Select a study to process raw datasets (sp_geom, surf, geom): ')
+    case_name = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
 
     # Class instances
     dt_reader = DataReader(case_name)
@@ -240,6 +283,11 @@ def main():
 
     #Combine csv and DOE label files
     df = dt_reader.combine_data()
+
+    # Dropping SMX_pos, length (sm) and Height, arc_length, Time (sv) columns from input features required by the regressor
+    for column in df.columns:
+        if column == 'SMX_pos (mm)' or column == 'Length' or column == 'Height' or column == 'arc_length' or column == 'Time':
+            df = df.drop(column,axis=1)
 
     # Divide between input and output params in the combined df
     params = df.columns
@@ -251,11 +299,6 @@ def main():
 
     #drop output columns assuming DOE df is concatenated first always
     X_df = df.drop(df.columns[int(in_idx):], axis = 1)
-
-    # Dropping SMX_pos and length columns from input features required by the regressor
-    for column in X_df.columns:
-        if column == 'SMX_pos (mm)' or column == 'Length':
-            X_df = X_df.drop(column,axis=1)
 
     #Choose idx for output variables
     out_idx = input('Select the output parameters idx to include (separated by ,) or choose \'all\': ')
@@ -269,9 +312,11 @@ def main():
         y_df = df[df.columns[out_idx_list]].copy()
 
     #Scale input and output features
-    scaled_data = dt_processor.scale_data([X_df,y_df])
+    X_scaled = dt_processor.scale_data([X_df.copy()],scaling='norm')
+    y_scaled = dt_processor.scale_data([y_df.copy()],scaling='norm')
 
-    X_scaled, y_scaled = scaled_data[0], scaled_data[1]
+    dt_processor.plot_scaling(X_df,X_scaled)
+    dt_processor.plot_scaling(y_df,y_scaled)
 
     # train test splitting
     X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, test_size=0.25, random_state=2024)
@@ -295,7 +340,7 @@ def main():
 
         # Package data for further use training and deploying regression models
         data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_df]
-        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_res']
+        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info']
 
     else:
 
