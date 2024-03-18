@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import configparser
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 from abc import ABC, abstractmethod
 from matplotlib import pyplot
 #Model regression imports
@@ -70,80 +72,8 @@ class Regressor(ABC,PathConfig):
     def init_model(self):
         """Initialize the regression model."""
         pass
-
-    def kfold_cv(self,X,y,model,label):
-
-        # number of kfolds to try as hyperparameter for the cross validation sensitivity
-        kfolds=50
-        folds = range(2,kfolds+1)
-
-        # List to store all metrics per kfold cross validation run
-        cv_results = {f'kfold_{fold}':{} for fold in folds}
-
-        # Empty containers to track best model overall and each kfold run performance
-        best_model = None
-        best_score = float('inf')  # Initialize with a very large value
-        best_fold_idx = 0
-        tolerance = 0.01
-
-        for k in folds:
-
-            # Container to store results per k-fold cv run
-            fold_results = {}
-
-            #Cross validation set splitter
-            cv = RepeatedKFold(n_splits=k, n_repeats=5)
-
-            # Extract detailed scores and performance per model
-            score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error']
-            
-            scores = cross_validate(model, X, y, scoring=score_metrics,cv=cv, n_jobs=4,verbose=1) #number of folds X number of repeats
-
-            # Store the overall metrics obtained for the k cross validation run tested
-            for metric in scores.keys():
-                if 'neg' in metric:
-                    scores_abs = np.abs(scores[metric])
-                else:
-                    scores_abs = scores[metric]
-                
-                fold_results[metric] = {'mean' : np.mean(scores_abs),
-                                            'min': np.min(scores_abs),
-                                            'max' : np.max(scores_abs)}
-                
-            # Update overall results with k-fold cv instance results
-            cv_results[f'kfold_{k}'].update(fold_results)
         
-            # Evaluate kfold cv run performance vs. previous best kfold run to update best model so far
-            if fold_results['test_neg_mean_squared_error']['mean'] < best_score:
-                best_score = fold_results['test_neg_mean_squared_error']['mean']
-                best_fold_idx = k
-                best_model = model
-
-            # Check if MSE has stopped improving from the previous kfold instance run and stop the loop
-            stop_crit = abs((cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] - 
-                             cv_results[f'kfold_{k-1}']['test_neg_mean_squared_error']['mean'])
-                             /cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] 
-                            if k>2 else 1)
-            
-            # Early stopping algorithm
-            if k>2 and stop_crit<tolerance:
-                # Drop all future kfold runs if algorithm chooses to stop
-                folds_to_drop = [f'kfold_{k}' for k in range(k+1,kfolds+1)]
-                for key in folds_to_drop:
-                    if key in cv_results:
-                        del cv_results[key]
-                break
-        
-        # Save best model obtained
-        joblib.dump(best_model,os.path.join(self.model_savepath, label, f'{label}_best_model_{best_fold_idx}_folds.pkl'))
-
-        # Save metrics log for all kfold runs carried out
-        with open(os.path.join(self.model_savepath, label, f'{label}_kfoldcv_scores.txt'), 'w') as file :
-            for k, fold_run in enumerate(cv_results.keys()):
-                file.write(f'Results for cv run with k={k+2}: {cv_results[fold_run]}' + '\n')
-        
-        return {f'{best_fold_idx}_fold scores' : cv_results[f'kfold_{best_fold_idx}']}
-        
+    # Model build main pipeline: kfold + gridsearch + kfold
     def model_build(self, **kwargs):
         self.kwargs = kwargs
 
@@ -192,7 +122,92 @@ class Regressor(ABC,PathConfig):
             scores = [r2,mae,mse]
 
         return scores
-    
+
+    def kfold_cv(self,X,y,model,label):
+
+        # number of kfolds to try as hyperparameter for the cross validation sensitivity
+        kfolds=50
+        min_k = 3
+        folds = range(min_k,kfolds+1)
+
+        # List to store all metrics per kfold cross validation run
+        cv_results = {f'kfold_{fold}':{} for fold in folds}
+
+        # Empty containers to track best model overall and each kfold run performance
+        best_model = None
+        best_score = float('inf')  # Initialize with a very large value
+        best_fold_idx = 0
+        tolerance = 0.001
+
+        for k in folds:
+
+            # Container to store results per k-fold cv run
+            fold_results = {}
+
+            #Cross validation set splitter
+            cv = RepeatedKFold(n_splits=k, n_repeats=5)
+
+            # Extract detailed scores and performance per model
+            score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error']
+            
+            scores = cross_validate(model, X, y, scoring=score_metrics,cv=cv, n_jobs=4,verbose=1) #number of folds X number of repeats
+
+            # Store the overall metrics obtained for the k cross validation run tested
+            for metric in scores.keys():
+                # Take absolute value from sklearn natively negative metrics
+                if 'neg' in metric:
+                    scores_abs = np.abs(scores[metric])
+                else:
+                    scores_abs = scores[metric]
+                
+                fold_results[metric] = {'mean' : np.mean(scores_abs),
+                                            'min': np.min(scores_abs),
+                                            'max' : np.max(scores_abs)}
+                
+            # Update overall results with k-fold cv instance results
+            cv_results[f'kfold_{k}'].update(fold_results)
+        
+            # Evaluate kfold cv run performance vs. previous best kfold run to update best model so far
+            if fold_results['test_neg_mean_squared_error']['mean'] < best_score:
+                best_score = fold_results['test_neg_mean_squared_error']['mean']
+                best_fold_idx = k
+                best_model = model
+
+            # Check if MSE has stopped improving from the previous kfold instance run and stop the loop
+            stop_crit = abs((cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] - 
+                             cv_results[f'kfold_{k-1}']['test_neg_mean_squared_error']['mean'])
+                             /cv_results[f'kfold_{k}']['test_neg_mean_squared_error']['mean'] 
+                            if k>min_k else 1)
+            
+            # Early stopping algorithm
+            if k>min_k and stop_crit<tolerance:
+                # Drop all future kfold runs if algorithm chooses to stop
+                folds_to_drop = [f'kfold_{k}' for k in range(k+1,kfolds+1)]
+
+                for key in folds_to_drop:
+                    del cv_results[key]
+                print(f'Stopping kfold sensitivity early stopping at fold {k}')
+                break
+        
+        # Save best model obtained
+        joblib.dump(best_model,os.path.join(self.model_savepath, label, f'{label}_best_model_{best_fold_idx}_folds.pkl'))
+
+        # Save metrics log for all kfold runs carried out
+        with open(os.path.join(self.model_savepath, label, f'{label}_kfoldcv_scores.txt'), 'w') as file :
+            for k, fold_run in enumerate(cv_results.keys()):
+                file.write(f'Results for cv run with k={k+min_k}: {cv_results[fold_run]}' + '\n')
+                file.write('-'*72)
+        
+        # Returning final mean metrics for best fold
+        kf_cv_summary = {'Best fold': best_fold_idx,
+        'r2' : cv_results[f'kfold_{best_fold_idx}']['test_r2']['mean'],
+        'mae' : cv_results[f'kfold_{best_fold_idx}']['test_neg_mean_absolute_error']['mean'],
+        'mse' : cv_results[f'kfold_{best_fold_idx}']['test_neg_mean_squared_error']['mean'],
+        'var' : cv_results[f'kfold_{best_fold_idx}']['test_explained_variance']['mean']
+        }
+            
+        return kf_cv_summary
+
     def fit_model(self,X_train,y_train,model,**kwargs):
 
         # Fit model from native sklearn wrapper and return trained model
@@ -393,14 +408,15 @@ class MLPWrapper(MLP):
     def kfold_cv(self,X,y,net,label):
 
         # number of kfolds to try as hyperparameter for the cross validation sensitivity
-        kfolds=5
-        folds = range(2,kfolds)
+        kfolds = 50
+        min_k = 3
+        folds = range(min_k,kfolds)
 
         # List to store all metrics per kfolds cross validates
         cv_results = {f'kfold_{fold}':{} for fold in folds}
 
         # Early stopping algorithm tolerance
-        tolerance = 0.01
+        tolerance = 0.005
         
         # Empty containers to track best model overall and each kfold run performance
         best_score = float('inf')  # Initialize with a very large value
@@ -420,16 +436,18 @@ class MLPWrapper(MLP):
             # Chkpt dir for each kfold instance run
             checkpoint_dir = os.path.join(self.model_savepath, label, f'{k}_fold_run')
 
-            # Create kfold run checkpoint folder and clean if previous files exist
+            # Create kfold run checkpoint folder
             if not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
+
+            # clean if previous files exist
             else:
                 for filename in os.listdir(checkpoint_dir):
                     file_path = os.path.join(checkpoint_dir,filename)
                     os.remove(file_path)
         
             # Crossvalidation set splitter with repeats
-            cv = RepeatedKFold(n_splits=k, n_repeats=5)
+            cv = RepeatedKFold(n_splits=k, n_repeats=3)
 
             print(f'Starting Cross-Validation with {k} folds ...')
             print('-'*72)
@@ -451,14 +469,14 @@ class MLPWrapper(MLP):
 
                 # Fit network with CV split train, val sets and call checkpoint callback
                 history = net.fit(X[train],y[train], 
-                                validation_data=(X[test], y[test]), epochs = 5, batch_size = 1,
+                                validation_data=(X[test], y[test]), epochs = 10, batch_size = 1,
                                 callbacks=callbacks_list,verbose=0)
                 
                 # Save repeat checkpoint if it has been created  - track last repeat checkpoint created
                 if os.path.exists(checkpoint_path):
                     latest_checkpoint = checkpoint_path
                 
-                #Load weights from last repeat checkpoint saved
+                # Load weights from last repeat checkpoint saved
                 net.load_weights(latest_checkpoint)
 
                 # Evaluate model fit on validation set according to Kfold split
@@ -470,6 +488,8 @@ class MLPWrapper(MLP):
                     
                 # Save network metrics previously compiled in build_net() per repeat executed
                 for i, metric in enumerate(history.history.keys()):
+
+                    # Only loop through the history metrics included in the scores
                     if i < len(scores):
                         # initialize or append metric values per repeat 
                         if metric in repeat_results:
@@ -485,8 +505,8 @@ class MLPWrapper(MLP):
             # Compile repeat metric scores for the current kfold cv run performed
             for metric in repeat_results.keys():
                 fold_results[metric] = {'mean' : np.mean(repeat_results[metric]),
-                                        'min': min(repeat_results[metric]),
-                                        'max' : max(repeat_results[metric])}
+                                        'min': np.min(repeat_results[metric]),
+                                        'max' : np.max(repeat_results[metric])}
                 
             # Append kfold instance run overall results
             cv_results[f'kfold_{k}'].update(fold_results)
@@ -497,9 +517,10 @@ class MLPWrapper(MLP):
             
             print('-'*72)
             
+            # First key in fold_results
             loss_key = next(iter(fold_results.keys()))
 
-            # Evaluate kfold cv run performance vs. previous best kfold run to update best model so far
+            # Evaluate kfold cv run performance vs. previous best kfold runs to update best model so far
             if fold_results[loss_key]['mean'] < best_score:
                 best_score = fold_results[loss_key]['mean']
                 best_fold_idx = k
@@ -508,22 +529,31 @@ class MLPWrapper(MLP):
             stop_crit = abs((cv_results[f'kfold_{k}'][loss_key]['mean'] - 
                             cv_results[f'kfold_{k-1}'][loss_key]['mean'])
                             /cv_results[f'kfold_{k}'][loss_key]['mean'] 
-                                if k>2 else 1)
+                                if k>min_k else 1)
             
             # Early stopping algorithm
-            if k>2 and stop_crit<tolerance:
+            if k>min_k and stop_crit<tolerance:
                 folds_to_drop = [f'kfold_{k}' for k in range(k+1,kfolds)]
+
                 for key in folds_to_drop:
-                    if key in cv_results:
-                        del cv_results[key]
+                    del cv_results[key]
+                print(f'Stopping kfold sensitivity early stopping at fold {k}')
                 break
 
         # Save metrics log for all kfold runs carried out
         with open(os.path.join(self.model_savepath, label, f'{label}_kfoldcv_scores.txt'), 'w') as file :
             for k, fold_run in enumerate(cv_results.keys()):
                 file.write(f'Results for cv run with k={k+2}: {cv_results[fold_run]}' + '\n')
+                file.write('-'*72)
+
+        # Returning final mean metrics for best fold
+        kf_cv_summary = {'Best fold': best_fold_idx,
+        'r2' : cv_results[f'kfold_{best_fold_idx}']['r2_score']['mean'],
+        'mae' : cv_results[f'kfold_{best_fold_idx}']['mae']['mean'],
+        'mse' : cv_results[f'kfold_{best_fold_idx}']['mse']['mean']
+        }
             
-        return {f'{best_fold_idx}_fold scores' : cv_results[f'kfold_{best_fold_idx}']}
+        return kf_cv_summary
 
 def main():
 
