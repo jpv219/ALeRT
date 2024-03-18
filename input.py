@@ -75,7 +75,7 @@ class DataReader(PathConfig):
         DOE_df = pd.concat(DOE_list, ignore_index=True)
 
         # Count how many runs are stored successfully in the CSV.
-        run_list = data_df['Run_ID'].tolist()
+        run_list = set(data_df['Run_ID'].tolist())
 
         return data_df, DOE_df, run_list
 
@@ -173,23 +173,35 @@ class DataProcessor(PathConfig):
         return scaled_data
     
     # Visualize data before and after scaling
-    def plot_scaling(self, original_data, scaled_data):
+    def plot_scaling(self, original_data, scaled_data,data_label):
         
-        fig,ax = plt.subplots(len(original_data.columns),2, figsize=(12,int(len(original_data.columns)*5)))
+        num_features = len(original_data.columns)
+        
+        fig,ax = plt.subplots(num_features,2, figsize=(12,int(num_features)*5))
         plt.subplots_adjust(hspace=0.8)
+
+        # If only one output feature is selected, reshape the axes to allow plotting
+        if num_features == 1:
+            ax = ax.reshape((1, 2))
+
         for i, column in enumerate(original_data.columns):
+
+            # Instructions for output features read as arrays from csv
             if original_data[column].dtype == 'object':
+
                 for j in original_data.index:
                     ax[i,0].plot(original_data[column][j])
                     ax[i,0].set_title(f'Data before: {column}')
                     ax[i,1].plot(scaled_data[column][j])
                     ax[i,1].set_title(f'Data after: {column}')
+            # Scalar input features
             else:
                 ax[i,0].plot(original_data[column])
                 ax[i,0].set_title(f'Data before: {column}')
                 ax[i,1].plot(scaled_data[column])
                 ax[i,1].set_title(f'Data after: {column}')
-        fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{column}'),dpi=200)
+
+        fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{data_label}'),dpi=200)
         plt.show()
     
     def PCA_reduction(self,df,var_ratio):
@@ -315,8 +327,8 @@ def main():
     X_scaled = dt_processor.scale_data([X_df.copy()],scaling='norm')
     y_scaled = dt_processor.scale_data([y_df.copy()],scaling='norm')
 
-    dt_processor.plot_scaling(X_df,X_scaled)
-    dt_processor.plot_scaling(y_df,y_scaled)
+    dt_processor.plot_scaling(X_df,X_scaled,data_label='inputs')
+    dt_processor.plot_scaling(y_df,y_scaled,data_label='outputs')
 
     # train test splitting
     X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, test_size=0.25, random_state=2024)
