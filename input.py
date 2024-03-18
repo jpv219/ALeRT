@@ -317,9 +317,15 @@ def main():
 
     if out_idx == 'all':
         y_df = df.drop(df.columns[:int(in_idx)], axis = 1)
+
     else:
         #selected variables to preserve
         out_idx_list = [int(x) for x in out_idx.split(',')]
+        
+        # Raise exception if chosen idx are located within the selected input features
+        for idx in out_idx_list:
+            if idx < int(in_idx):
+                raise ValueError(f'idx = {idx} selected is not within the output features idxs : {in_idx} to {param_idx[-1][0]} ')
 
         y_df = df[df.columns[out_idx_list]].copy()
 
