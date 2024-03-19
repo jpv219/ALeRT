@@ -94,7 +94,8 @@ class Regressor(ABC,PathConfig):
         # Carry out repeated Kfold cross validation only on train sets
         if kfold.lower() == 'y':
 
-            cv = KFoldCrossValidator('repeated', model, model_name, n_repeats= 5)
+            cv = KFoldCrossValidator('repeated', model, model_name, 
+                                     min_k=3, max_k=50, n_repeats= 5)
 
             scores = cv.gen_kfold_cv(X_train_arr,y_train_arr)
 
@@ -558,6 +559,9 @@ def main():
     # Model selection from user input
     model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp_reg, mlp): ')
 
+    if model_choice not in wrapper_dict.keys():
+        raise ValueError('Specified model is not supported')
+    
     # selecting corresponding wrapper
     wrapper_model = wrapper_dict.get(model_choice)
 

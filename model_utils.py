@@ -42,105 +42,125 @@ class PathConfig:
     
 
 
-class EarlyStopping(PathConfig):
+class EarlyStopping:
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, metric, patience = 5, tol = 0.001, verbose = True):
 
-    @staticmethod
-    def update_best_score(current: list, best: list, mode = 'min') -> list:
-        
-        current_score, current_k, current_model = current
-        best_score, best_k, best_model = best
-        
-        # Target objective is to minimize the measured metric/score
-        if mode == 'min':
-            if current_score < best_score:
-                best_score = current_score
-                best_k = current_k
-                best_model = current_model
-            else:
-                return current
+        self.__counter = 0
+        self.__stop = False
+        self.verbose = verbose
+        self.patience = patience
+        self.tol = tol
+
+        # cv specific attributes
+        self.score = 'test_' + metric
+
+        # tracking best model overall and each kfold run performance: containing score, k_iteration, model
+        self.__best_score = None 
+        self.__best_k = 0
+        self.__best_model = None
+
+    @property
+    def stop(self):
+        return self.__stop
+
+    def get_best_fold(self) -> list:
+        return [self.__best_score, self.__best_k, self.__best_model]
+
+    # Call early stopping algorithm
+    def __call__(self, current: list, mode = 'min'):
+
+        # Update best results based on current fold results
+        self.__update_best_score(current, mode)
+
+        current_results, current_k, _ = current
+        current_score = current_results[self.score]['mean']
+
+        # Calculate the absolute change between current score and best score
+        abs_change = abs(current_score - self.__best_score)
+
+        # Check if there is no improvement but change is within tolerance
+        if abs_change != 0 and abs_change < self.tol * self.__best_score:
+            if self.verbose:
+                print("No improvement, but change is within tolerance.")
             
-        # Target objective is to maximize the measured metric/score
-        elif mode == 'max':
-            if current_score > best_score:
-                best_score = current_score
-                best_k = current_k
-                best_model = current_model
-            else:
-                return current
-        
+        # if no improvement exists outside of tolerance, start counting towards the early stop
+        if (mode == 'min' and current_score > self.__best_score + self.tol*self.__best_score) or \
+           (mode == 'max' and current_score < self.__best_score - self.tol*self.tol*self.__best_score):
+            self.__counter += 1
+
+            if self.verbose:
+                print(f'Early stopping counter: {self.__counter} out of {self.patience}')
+
+        # Reset early stopping counter if an improvement exists: current = best
         else:
-            raise ValueError('Update mode specified not supported')
+            self.__counter = 0
+
+        # If counter reaches patience, send stop signal
+        if self.__counter >= self.patience:
+
+            self.__stop = True
+
+            if self.verbose:
+                print(f'Stopping kfold sensitivity early stopping at fold {current_k}')
 
         
-        print(f'Best scores updated at fold {current_k}')
-
-        return [best_score, best_k, best_model]
-
-    @staticmethod
-    def check_early_stopping(cv_results, min_k, kfolds, k, metric, tol = 0.01, patience = 5, mode = 'mean') -> tuple[bool,dict]:
+    # Evaluate kfold cv run performance vs. previous best kfold run to update best model so far
+    def __update_best_score(self, current: list, mode = 'min'):
         
-        score = 'test_' + metric
-        stop = False
-        patience_counter = 0
-
-        # Check if metric has stopped improving from the previous kfold instance run and stop the loop
-        stop_crit = abs((cv_results[f'kfold_{k}'][score][mode] - 
-                             cv_results[f'kfold_{k-1}'][score][mode])
-                             /cv_results[f'kfold_{k}'][score][mode] 
-                            if k>min_k else 1)
+        if mode not in ['max', 'min']:
+            raise ValueError('Unsupported update mode. Supported modes: "min", "max"')
         
-        # Early stopping algorithm
-        if k>min_k and stop_crit<tol:
+        current_results, current_k, current_model = current
+        current_score = current_results[self.score]['mean']
+
+        previous_best = self.__best_score
+        
+        # Update best attributes if they are none or if an improvement is seen
+        if self.__best_score is None or \
+           (mode == 'min' and current_score < self.__best_score) or \
+           (mode == 'max' and current_score > self.__best_score):
             
-            stop = True
+            self.__best_score = current_score
+            self.__best_k = current_k
+            self.__best_model = current_model
 
-            # Drop all future kfold runs if algorithm chooses to stop
-            folds_to_drop = [f'kfold_{k}' for k in range(k+1,kfolds+1)]
+            if self.verbose:
+                print(f'Best scores updated at fold {current_k}: {self.score} now at {self.__best_score} from {previous_best}')
+                
 
-            for key in folds_to_drop:
-                del cv_results[key]
+class KFoldCrossValidator(PathConfig):
 
-            print(f'Stopping kfold sensitivity early stopping at fold {k}')
-        
-        return stop, cv_results
-        
-
-
-class KFoldCrossValidator(EarlyStopping,PathConfig):
-
-    def __init__(self, cv_type, model,name, n_repeats = 5):
+    def __init__(self, cv_type, model,name, min_k=3, max_k=50, n_repeats = 5):
 
         super().__init__()
+
         self.model = model
         self.model_name = name
+        self.min_k = min_k
+        self.max_k = max_k
 
         validators = {'kfold': KFold,
                       'repeated': lambda n_splits: RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats), # If cv_type is 'repeated', specify the number of repeats
                       'stratified': StratifiedKFold}
-                
-        
+                     
+        # Select Validator object based on input arguments
         if cv_type in validators.keys():
             self.cv_class = validators[cv_type]
 
         else:
             raise ValueError('Kfold cross validator specified is not supported')
 
-    def gen_kfold_cv(self, X, y, min_k=3, kfolds=50):
+    def gen_kfold_cv(self, X, y):
         
         # number of kfolds to try as hyperparameter for the cross validation sensitivity
-        folds = range(min_k,kfolds+1)
+        folds = range(self.min_k,self.max_k+1)
 
         # List to store all metrics per kfold cross validation run
         cv_results = {f'kfold_{fold}':{} for fold in folds}
         
-        # Empty containers to track best model overall and each kfold run performance: containing score, k_iteration, model
-        best_model = None
-        best_score = float('inf')  # Initialize with a very large value
-        best_fold_idx = 0
-        best = [best_score, best_fold_idx, best_model]
+        # Initialize early stopping logic
+        early_stopping = EarlyStopping('neg_mean_squared_error', patience= 5, tol= 0.005, verbose = True)
 
         for k in folds:
 
@@ -171,19 +191,20 @@ class KFoldCrossValidator(EarlyStopping,PathConfig):
             cv_results[f'kfold_{k}'].update(fold_results)
 
             # Current kfold state
-            current = [fold_results['test_neg_mean_squared_error']['mean'], k, self.model]
+            current = [fold_results, k, self.model]
 
-            # Evaluate kfold cv run performance vs. previous best kfold run to update best model so far
-            best = self.update_best_score(current, best, mode = 'min')
+            # Early stopping for kfold sensitivity
+            early_stopping(current)
 
-            # Early stopping condition
-            stop, cv_results = self.check_early_stopping(cv_results, min_k, kfolds, k, metric = 'neg_mean_squared_error')
-
-            if stop: 
+            if early_stopping.stop: 
                 break
 
-        best_fold_idx = best[1]
-        best_model = best[2]
+        _, best_fold_idx, best_model = early_stopping.get_best_fold()
+
+        # Drop all future kfolds after algorithm has decided to early stop at a best kfold
+        folds_to_drop = [f'kfold_{k}' for k in range(best_fold_idx+1, self.max_k+1)]
+        for key in folds_to_drop:
+            del cv_results[key]
         
         # Save best model obtained
         joblib.dump(best_model,os.path.join(self.model_savepath, self.model_name, f'{self.model_name}_best_model_{best_fold_idx}_folds.pkl'))
@@ -191,7 +212,7 @@ class KFoldCrossValidator(EarlyStopping,PathConfig):
         # Save metrics log for all kfold runs carried out
         with open(os.path.join(self.model_savepath, self.model_name, f'{self.model_name}_kfoldcv_scores.txt'), 'w') as file :
             for k, fold_run in enumerate(cv_results.keys()):
-                file.write(f'Results for cv run with k={k+min_k}: {cv_results[fold_run]}' + '\n')
+                file.write(f'Results for cv run with k={k+self.min_k}: {cv_results[fold_run]}' + '\n')
                 file.write('-'*72 + '\n')
         
         # Returning final mean metrics for best fold
