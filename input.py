@@ -136,6 +136,64 @@ class DataProcessor(PathConfig):
         super().__init__()
         self._case = case
 
+    def find_indices(self,df_column,where,percentage=0.0):
+        '''
+        Find the index with min and max values across all arrays in a column
+        '''
+        indices_in_df = []
+        if percentage == 0.0:
+            num_cases = 1
+        else:
+            # Calculate the number of cases corresponding to the given percentage
+            num_cases = max(1,int(percentage*len(df_column)))
+            
+        if df_column.dtype == 'object':
+            for _ in range(num_cases):
+                # Concatenate arrays vertically
+                stacked_arr = np.vstack(df_column)
+                
+                # Find the index of the min and max values across all arrays
+                if where == 'min':
+                    the_index = np.unravel_index(np.argmin(stacked_arr),stacked_arr.shape)
+                elif where == 'max':
+                    the_index = np.unravel_index(np.argmax(stacked_arr),stacked_arr.shape)
+                
+                index_in_df = df_column.index[the_index[0]]
+                df_column = df_column.drop(index_in_df)
+                indices_in_df.append(index_in_df)
+        else:
+            if where == 'min':
+                the_indices = df_column.nsmallest(num_cases).index.tolist()
+                indices_in_df = df_column.index[the_indices]
+            elif where == 'max':
+                the_indices = df_column.nlargest(num_cases).index.tolist()
+                indices_in_df = df_column.index[the_indices]
+        
+        return indices_in_df
+
+    
+    def filter_minmax(self, data_pack,bottom=0.0,upper=0.0):
+        '''
+        Separate the cases with min and max feature values;
+        input: both X_df and y_df
+        return: X_minmax, X_filtered, y_minmax, y_filtered
+        '''
+        X_df = data_pack[0]
+        y_df = data_pack[1]
+        for column in y_df.columns:
+
+            df_min_indices = self.find_indices(y_df[column],'min',bottom)
+            df_max_indices = self.find_indices(y_df[column],'max',upper)
+            
+            # Extract the rows as a Dataframe using doule brackets
+            X_minmax = pd.concat([X_df.loc[df_min_indices],X_df.loc[df_max_indices]],axis=0)
+            y_minmax = pd.concat([y_df.loc[df_min_indices],y_df.loc[df_max_indices]],axis=0)
+            X_filtered = X_df.drop(df_min_indices+df_max_indices)
+            y_filtered = y_df.drop(df_min_indices+df_max_indices)
+
+        return X_minmax, y_minmax, X_filtered, y_filtered
+                
+    
     def scale_data(self,data_pack,scaling):
 
         scaled_data = []
@@ -182,7 +240,8 @@ class DataProcessor(PathConfig):
                 for j in original_data.index:
                     ax[i,0].plot(original_data[column][j])
                     ax[i,0].set_title(f'Data before: {column}')
-                    ax[i,1].plot(scaled_data[column][j])
+                for k in scaled_data.index:
+                    ax[i,1].plot(scaled_data[column][k])
                     ax[i,1].set_title(f'Data after: {column}')
             else:
                 ax[i,0].plot(original_data[column])
@@ -311,15 +370,26 @@ def main():
 
         y_df = df[df.columns[out_idx_list]].copy()
 
+    # # Filter cases with min/max feature values
+    percentage_choice = input('Define the percentage of cases to filter out (default:(lower,upper)=(0,0)): ')
+    percentages = [float(x) for x in percentage_choice.split(',')]
+    X_minmax, y_minmax, X_filtered, y_filtered = dt_processor.filter_minmax([X_df,y_df],bottom=percentages[0],upper=percentages[1])
+    
     #Scale input and output features
-    X_scaled = dt_processor.scale_data([X_df.copy()],scaling='norm')
-    y_scaled = dt_processor.scale_data([y_df.copy()],scaling='norm')
+    scale_choice = input('Select a scaling method (norm/log): ')
 
-    dt_processor.plot_scaling(X_df,X_scaled)
-    dt_processor.plot_scaling(y_df,y_scaled)
+    X_scaled = dt_processor.scale_data([X_df.copy(),X_minmax,X_filtered],scaling=scale_choice)
+    y_scaled = dt_processor.scale_data([y_df.copy(),y_minmax,y_filtered],scaling=scale_choice)
+
+    dt_processor.plot_scaling(X_df,X_scaled[-1])
+    dt_processor.plot_scaling(y_df,y_scaled[-1])
 
     # train test splitting
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, test_size=0.25, random_state=2024)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.25, random_state=2024)
+    combine_choice = input('Include the filtered cases into training? (y/n):')
+    if combine_choice.lower() == 'y':
+        X_train = pd.concat([X_train,X_minmax],axis=0)
+        y_train = pd.concat([y_train,y_minmax],axis=0)
 
     y_test_exp = pd.DataFrame()
     
