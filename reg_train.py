@@ -94,10 +94,10 @@ class Regressor(ABC,PathConfig):
         # Carry out repeated Kfold cross validation only on train sets
         if kfold.lower() == 'y':
 
-            cv = KFoldCrossValidator('repeated', model, model_name, 
-                                     min_k=3, max_k=50, n_repeats= 5)
+            cross_validate = KFoldCrossValidator(model, model_name, k_sens= True)
 
-            scores = cv.gen_kfold_cv(X_train_arr,y_train_arr)
+            scores = cross_validate(X_train_arr,y_train_arr, 'sk_native', 
+                                    cv_type = 'repeated', n_repeats = 5, min_k = 3, max_k = 50)
 
         else:
 
