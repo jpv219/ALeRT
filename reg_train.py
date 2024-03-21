@@ -5,7 +5,6 @@
 ### Department of Chemical Engineering, Imperial College London
 ##########################################################################
 
-import numpy as np
 import pandas as pd
 import configparser
 import os
@@ -23,14 +22,11 @@ from keras.models import Sequential
 from keras.layers import InputLayer, Dense
 from keras.optimizers import Adam
 from scikeras.wrappers import KerasRegressor
-import tensorflow as tf
 #Model metrics and utilities
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from model_utils import KFoldCrossValidator
-from sklearn.model_selection import RepeatedKFold, cross_validate
-from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+from keras.callbacks import ReduceLROnPlateau
 from keras.metrics import R2Score
-import joblib
 
 ############################# PATH UTILITIES ##############################################
 class PathConfig:
@@ -74,15 +70,9 @@ class Regressor(ABC,PathConfig):
         pass
         
     # Model build main pipeline: kfold + gridsearch + kfold
-    def model_build(self, **kwargs):
-        self.kwargs = kwargs
-
-        model = self.kwargs.get('model')
-        kfold = self.kwargs.get('kfold')
-        model_name = self.kwargs.get('name')
+    def model_build(self, data_packs, model, kfold, model_name):
 
         # Reading data arrays for model fit and eval
-        data_packs = self.kwargs.get('data_packs',None)
         X_train, y_train, X_test, y_test = data_packs[:4]
 
         # Converting into numpy for model fit and prediction
@@ -93,11 +83,24 @@ class Regressor(ABC,PathConfig):
 
         # Carry out repeated Kfold cross validation only on train sets
         if kfold.lower() == 'y':
+            
+            if isinstance(self,MLP):
+                native = 'mlp'
+                es_score = 'loss'
+                
+            else:
+                native = 'sk_native'
+                es_score = 'mse'
 
-            cross_validate = KFoldCrossValidator(model, model_name, k_sens= True)
+            cv_args = {'cv_type': 'kfold',
+                       'n_repeats': 1,
+                       'min_k': 3,
+                       'max_k':50,
+                       'earlystop_score': es_score}
+            
+            cross_validate = KFoldCrossValidator(model, model_name, native, k_sens= True)
 
-            scores = cross_validate(X_train_arr,y_train_arr, 'sk_native', 
-                                    cv_type = 'repeated', n_repeats = 5, min_k = 3, max_k = 50)
+            scores = cross_validate(X_train_arr,y_train_arr, **cv_args)
 
         else:
 
@@ -108,7 +111,7 @@ class Regressor(ABC,PathConfig):
                 batch_size = self.kwargs.get('batch_size', 1)
                 
                 # Call model fit function
-                tr_model = self.fit_model(X_train_arr,y_train_arr,model,epochs = epochs, batch_size = batch_size)
+                tr_model = self.fit_model(X_train_arr,y_train_arr,model)
 
             else:
 
@@ -126,7 +129,7 @@ class Regressor(ABC,PathConfig):
 
         return scores
 
-    def fit_model(self,X_train,y_train,model,**kwargs):
+    def fit_model(self,X_train,y_train,model):
 
         # Fit model from native sklearn wrapper and return trained model
         model.fit(X_train,y_train)
@@ -183,7 +186,7 @@ class MLP(Regressor):
 
         return net
 
-    def fit_model(self,X_train,y_train,model,**kwargs):
+    def fit_model(self,X_train,y_train,model):
 
         epochs = self.kwargs.get('n_epochs', 1)
         batch_size = self.kwargs.get('batch_size', 1)
@@ -221,8 +224,8 @@ class DecisionTreeWrapper(Regressor):
                                      min_samples_leaf=min_samples_leaf, min_impurity_decrease=min_impurity_decrease,
                                      random_state = random_state)
     
-    def model_build(self, **kwargs):
-        return super().model_build(**kwargs)
+    def model_build(self, data_packs, model, kfold, model_name):
+        return super().model_build(data_packs, model, kfold, model_name)
 
 class XGBoostWrapper(Regressor):
 
@@ -240,8 +243,8 @@ class XGBoostWrapper(Regressor):
         
         return XGBRegressor(max_depth=max_depth, n_estimators = n_estimators , random_state=random_state)
     
-    def model_build(self, **kwargs):
-        return super().model_build(**kwargs)
+    def model_build(self, data_packs, model, kfold, model_name):
+        return super().model_build(data_packs, model, kfold, model_name)
     
 class RandomForestWrapper(Regressor):
 
@@ -258,8 +261,8 @@ class RandomForestWrapper(Regressor):
         
         return RandomForestRegressor(n_estimators = n_estimators, random_state=random_state)
     
-    def model_build(self, **kwargs):
-        return super().model_build(**kwargs)
+    def model_build(self, data_packs, model, kfold, model_name):
+        return super().model_build(data_packs, model, kfold, model_name)
     
 class SVMWrapper(Regressor):
 
@@ -276,8 +279,8 @@ class SVMWrapper(Regressor):
 
         return MultiOutputRegressor(SVR(C=c_coef,epsilon=epsilon))
     
-    def model_build(self, **kwargs):
-        return super().model_build(**kwargs)
+    def model_build(self, data_packs, model, kfold, model_name):
+        return super().model_build(data_packs, model, kfold, model_name)
 
 class KNNWrapper(Regressor):
 
@@ -294,8 +297,8 @@ class KNNWrapper(Regressor):
         
         return KNeighborsRegressor(n_neighbors=n_neighbours)
     
-    def model_build(self, **kwargs):
-        return super().model_build(**kwargs)
+    def model_build(self, data_packs, model, kfold, model_name):
+        return super().model_build(data_packs, model, kfold, model_name)
 
 class MLPRegressorWrapper(MLP):
 
@@ -309,8 +312,8 @@ class MLPRegressorWrapper(MLP):
 
         return KerasRegressor(model = net,verbose=1)
     
-    def model_build(self, **kwargs):
-        return super().model_build(**kwargs)
+    def model_build(self, data_packs, model, kfold, model_name):
+        return super().model_build(data_packs, model, kfold, model_name)
 
 class MLPWrapper(MLP):
     
@@ -320,158 +323,8 @@ class MLPWrapper(MLP):
     def init_model(self):
         return self.build_net()
     
-    def model_build(self, **kwargs):
-        return super().model_build(**kwargs)
-    
-    def kfold_cv(self,X,y,net,label):
-
-        # number of kfolds to try as hyperparameter for the cross validation sensitivity
-        kfolds = 50
-        min_k = 3
-        folds = range(min_k,kfolds)
-
-        # List to store all metrics per kfolds cross validates
-        cv_results = {f'kfold_{fold}':{} for fold in folds}
-
-        # Early stopping algorithm tolerance
-        tolerance = 0.005
-        
-        # Empty containers to track best model overall and each kfold run performance
-        best_score = float('inf')  # Initialize with a very large value
-        best_fold_idx = 0
-
-        print('-'*72)
-        
-        for k in folds:
-
-            # Containers to store results per k-fold cv run
-            fold_results = {}
-            repeat_results = {}
-
-            # Initialize checkpoint holder
-            latest_checkpoint = None
-            
-            # Chkpt dir for each kfold instance run
-            checkpoint_dir = os.path.join(self.model_savepath, label, f'{k}_fold_run')
-
-            # Create kfold run checkpoint folder
-            if not os.path.exists(checkpoint_dir):
-                os.makedirs(checkpoint_dir)
-
-            # clean if previous files exist
-            else:
-                for filename in os.listdir(checkpoint_dir):
-                    file_path = os.path.join(checkpoint_dir,filename)
-                    os.remove(file_path)
-        
-            # Crossvalidation set splitter with repeats
-            cv = RepeatedKFold(n_splits=k, n_repeats=3)
-
-            print(f'Starting Cross-Validation with {k} folds ...')
-            print('-'*72)
-
-            # initialize val_loss threshold for ModelCheckpoint
-            best_val_loss = float('inf')
-
-            # Loop over CV kfold repeats and extract average values per kfold run instance
-            for repeat_idx, (train, test) in enumerate(cv.split(X,y)):
-                
-                print(f'Currently on repeat {repeat_idx} from k = {k} kfold run ...')
-                # Creating callbacks for repeats within a kfold run
-                checkpoint_path = os.path.join(checkpoint_dir, f'repeat_{repeat_idx}_best.keras')
-                checkpoint = ModelCheckpoint(checkpoint_path, 
-                                    monitor='val_loss', save_best_only= True, 
-                                verbose=1, mode='min', initial_value_threshold = best_val_loss)
-                
-                callbacks_list = [checkpoint]
-
-                # Fit network with CV split train, val sets and call checkpoint callback
-                history = net.fit(X[train],y[train], 
-                                validation_data=(X[test], y[test]), epochs = 10, batch_size = 1,
-                                callbacks=callbacks_list,verbose=0)
-                
-                # Save repeat checkpoint if it has been created  - track last repeat checkpoint created
-                if os.path.exists(checkpoint_path):
-                    latest_checkpoint = checkpoint_path
-                
-                # Load weights from last repeat checkpoint saved
-                net.load_weights(latest_checkpoint)
-
-                # Evaluate model fit on validation set according to Kfold split
-                scores = net.evaluate(X[test], y[test], verbose=0)
-
-                # Update best val_loss obtained from all repeats in the present kfold run
-                if scores[0]< best_val_loss:
-                    best_val_loss = scores[0]
-                    
-                # Save network metrics previously compiled in build_net() per repeat executed
-                for i, metric in enumerate(history.history.keys()):
-
-                    # Only loop through the history metrics included in the scores
-                    if i < len(scores):
-                        # initialize or append metric values per repeat 
-                        if metric in repeat_results:
-                            repeat_results[metric].append(scores[i])
-                        else:
-                            repeat_results[metric] = [scores[i]]
-                    else:
-                        break
-
-                tf.keras.backend.clear_session()
-                print('-'*72)
-            
-            # Compile repeat metric scores for the current kfold cv run performed
-            for metric in repeat_results.keys():
-                fold_results[metric] = {'mean' : np.mean(repeat_results[metric]),
-                                        'min': np.min(repeat_results[metric]),
-                                        'max' : np.max(repeat_results[metric])}
-                
-            # Append kfold instance run overall results
-            cv_results[f'kfold_{k}'].update(fold_results)
-
-            print('-'*72)
-            for metric in fold_results.keys():
-                print(f'Mean scores with {k} folds: {metric} = {fold_results[metric]["mean"]};' )
-            
-            print('-'*72)
-            
-            # First key in fold_results
-            loss_key = next(iter(fold_results.keys()))
-
-            # Evaluate kfold cv run performance vs. previous best kfold runs to update best model so far
-            if fold_results[loss_key]['mean'] < best_score:
-                best_score = fold_results[loss_key]['mean']
-                best_fold_idx = k
-            
-            # Check if MSE/loss has stopped improving from the previous kfold instance run and stop the loop
-            stop_crit = abs((cv_results[f'kfold_{k}'][loss_key]['mean'] - 
-                            cv_results[f'kfold_{k-1}'][loss_key]['mean'])
-                            /cv_results[f'kfold_{k}'][loss_key]['mean'] 
-                                if k>min_k else 1)
-            
-            # Early stopping algorithm
-            if k>min_k and stop_crit<tolerance:
-                folds_to_drop = [f'kfold_{k}' for k in range(k+1,kfolds)]
-
-                for key in folds_to_drop:
-                    del cv_results[key]
-                print(f'Stopping kfold sensitivity early stopping at fold {k}')
-                break
-
-        # Save metrics log for all kfold runs carried out
-        with open(os.path.join(self.model_savepath, label, f'{label}_kfoldcv_scores.txt'), 'w') as file :
-            for k, fold_run in enumerate(cv_results.keys()):
-                file.write(f'Results for cv run with k={k+2}: {cv_results[fold_run]}' + '\n')
-                file.write('-'*72)
-
-        # Returning final mean metrics for best fold
-        kf_cv_summary = {'Best fold': best_fold_idx,
-        'r2' : cv_results[f'kfold_{best_fold_idx}']['r2_score']['mean'],
-        'mae' : cv_results[f'kfold_{best_fold_idx}']['mae']['mean'],
-        'mse' : cv_results[f'kfold_{best_fold_idx}']['mse']['mean']
-        }
-            
-        return kf_cv_summary
+    def model_build(self, data_packs, model, kfold, model_name):
+        return super().model_build(data_packs, model, kfold, model_name)     
 
 def main():
 
@@ -578,8 +431,8 @@ def main():
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    scores = model_instance.model_build(data_packs = data_packs, model=model 
-                                        ,kfold = kfold_choice, name = model_name,**model_params)
+    scores = model_instance.model_build(data_packs, model, 
+                                        kfold_choice, model_name)
     
     print(scores)
  
