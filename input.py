@@ -191,6 +191,8 @@ class DataProcessor(PathConfig):
             X_filtered = X_df.drop(df_min_indices+df_max_indices)
             y_filtered = y_df.drop(df_min_indices+df_max_indices)
 
+            print(f'Filtering cases of {column}: {len(y_minmax)} out of {len(y_df)}.')
+
         return X_minmax, y_minmax, X_filtered, y_filtered
 
     def scale_data(self,data_pack,scaling):
