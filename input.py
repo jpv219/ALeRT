@@ -38,6 +38,22 @@ class PathConfig:
     def label_datapath(self):
         return self._config['Path']['doe']
 
+class LogScaler:
+    def __init__(self,base=10):
+        self.base = base
+        self.log_base = np.log(self.base)
+
+    def fit(self, X, y=None):
+        # No operation needed during fitting, built in for compatibility with sklearn scalers
+        return self
+    
+    def transform(self,X):
+        return np.log(X) / self.log_base
+    
+    def fit_transform(self,X):
+        self.fit(X)
+        return self.transform(X)
+
 class DataReader(PathConfig):
 
     def __init__(self,case):
@@ -108,28 +124,15 @@ class DataReader(PathConfig):
 
         for column in df.columns:
 
-                # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
-                if df[column].dtype == 'object':
-                    #Convert text lists into np arrays
-                    df[column] = df[column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
-                else:
-                    df[column] = df[column].astype(float)
+            # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
+            if df[column].dtype == 'object':
+                #Convert text lists into np arrays
+                df[column] = df[column].apply(lambda x: np.array(ast.literal_eval(x)) if isinstance(x, str) else np.array(x))
+            else:
+                df[column] = df[column].astype(float)
 
         return df
     
-class LogScaler:
-    def __init__(self,base=10):
-        self.base = base
-        self.log_base = np.log(self.base)
-    def fit(self, X, y=None):
-        # No operation needed during fitting
-        return self
-    def transform(self,X):
-        return np.log(X) / self.log_base
-    def fit_transform(self,X):
-        self.fit(X)
-        return self.transform(X) 
-
 class DataProcessor(PathConfig):
 
     def __init__(self,case):
@@ -154,13 +157,20 @@ class DataProcessor(PathConfig):
                 
                 # Find the index of the min and max values across all arrays
                 if where == 'min':
+                    # Convert flat index inside array into a row,column position - row=case
                     the_index = np.unravel_index(np.argmin(stacked_arr),stacked_arr.shape)
+
                 elif where == 'max':
                     the_index = np.unravel_index(np.argmax(stacked_arr),stacked_arr.shape)
                 
-                index_in_df = df_column.index[the_index[0]]
+                index_in_df = df_column.index[the_index[0]] #case based on row with min/max value
+                
+                # drop the case found and search for next min/max at loop restart
                 df_column = df_column.drop(index_in_df)
+
                 indices_in_df.append(index_in_df)
+
+        # If feature is not a collection of arrays
         else:
             if where == 'min':
                 the_indices = df_column.nsmallest(num_cases).index.tolist()
@@ -170,7 +180,6 @@ class DataProcessor(PathConfig):
                 indices_in_df = df_column.index[the_indices]
         
         return indices_in_df
-
     
     def filter_minmax(self, data_pack,bottom=0.0,upper=0.0):
         '''
@@ -180,6 +189,8 @@ class DataProcessor(PathConfig):
         '''
         X_df = data_pack[0]
         y_df = data_pack[1]
+
+        #search minmax values per feature
         for column in y_df.columns:
 
             df_min_indices = self.find_indices(y_df[column],'min',bottom)
@@ -390,21 +401,26 @@ def main():
         y_df = df[df.columns[out_idx_list]].copy()
 
     # # Filter cases with min/max feature values
-    percentage_choice = input('Define the percentage of cases to filter out (default: lower,upper=0,0): ')
+    percentage_choice = input('Define percentages [0,1] of min/max cases to filter out (default: lower,upper = 0,0): ')
     percentages = [float(x) for x in percentage_choice.split(',')]
+
     X_minmax, y_minmax, X_filtered, y_filtered = dt_processor.filter_minmax([X_df,y_df],bottom=percentages[0],upper=percentages[1])
     
     #Scale input and output features
     scale_choice = input('Select a scaling method (norm/log): ')
 
+    # scale data pack containing [original data, minmax found values, data w/o filtered cases]
     X_scaled = dt_processor.scale_data([X_df.copy(),X_minmax,X_filtered],scaling=scale_choice)
     y_scaled = dt_processor.scale_data([y_df.copy(),y_minmax,y_filtered],scaling=scale_choice)
 
+    # plot datapack w/o filtered minmax cases
     dt_processor.plot_scaling(X_df,X_scaled[-1],data_label='inputs')
     dt_processor.plot_scaling(y_df,y_scaled[-1],data_label='outputs')
 
-    # train test splitting
+    # train test splitting with filtered datapack
     X_train, X_test, y_train, y_test = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.25, random_state=2024)
+
+    # recombine filtered minmax cases intro training data pack
     combine_choice = input('Include the filtered cases into training? (y/n):')
     if combine_choice.lower() == 'y':
         X_train = pd.concat([X_train,X_minmax],axis=0)
