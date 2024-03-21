@@ -12,7 +12,7 @@ import shutil
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
-from sklearn.model_selection import RepeatedKFold, StratifiedKFold, KFold, cross_validate
+from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
 
@@ -143,27 +143,6 @@ class KFoldCrossValidator(PathConfig):
         self.verbose = verbose
         self.native = native
     
-    def print_verbose(self, message):
-        if self.verbose:
-            print(message)
-
-    @staticmethod
-    def clean_dir(dir):
-        
-        # Create kfold run checkpoint folder
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-
-        # clean if previous files exist
-        else:
-            for filename in os.listdir(dir):
-                file_path = os.path.join(dir,filename)
-
-                if os.path.isdir(file_path):
-                    shutil.rmtree(file_path)  # Remove directory and its contents
-                else:
-                    os.remove(file_path)
-
     def __call__(self, *args: Union[np.any, str], **kwargs: Union[np.any, str]) -> dict:
                
         X, y = args[0], args[1]
@@ -173,9 +152,10 @@ class KFoldCrossValidator(PathConfig):
         n_repeats = kwargs.get('n_repeats', 5)
         es_score = kwargs.get('earlystop_score', 'mse')
 
+        # If cv_type is 'repeated', specify the number of repeats
         kfolders = {'kfold': KFold,
-                'repeated': lambda n_splits: RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats), # If cv_type is 'repeated', specify the number of repeats
-                'stratified': StratifiedKFold}
+                'repeated': lambda n_splits: RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats),
+                }
 
         # mode whether going for sknative or MLP kfold function
         if self.native == 'sk_native':
@@ -433,3 +413,24 @@ class KFoldCrossValidator(PathConfig):
         self.print_verbose('-'*72)
 
         return kfold_results
+    
+    def print_verbose(self, message):
+        if self.verbose:
+            print(message)
+
+    @staticmethod
+    def clean_dir(dir):
+        
+        # Create kfold run checkpoint folder
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+        # clean if previous files exist
+        else:
+            for filename in os.listdir(dir):
+                file_path = os.path.join(dir,filename)
+
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # Remove directory and its contents
+                else:
+                    os.remove(file_path)
