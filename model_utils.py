@@ -11,7 +11,6 @@ import os
 import shutil
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
@@ -51,6 +50,7 @@ class KFoldEarlyStopping:
             delta (float): Porcentual minimum change in the monitored metric to be considered an improvement.
                             Default: 0.001
         """
+        # stopper attributes
         self.__counter = 0
         self.__stop = False
         self.verbose = verbose
@@ -73,6 +73,7 @@ class KFoldEarlyStopping:
         if self.verbose:
             print(message)
 
+    # getter for best pack
     def get_best_fold(self) -> list:
         return [self.__best_score, self.__best_k, self.__best_model]
 
@@ -112,6 +113,7 @@ class KFoldEarlyStopping:
         if mode not in ['max', 'min']:
             raise ValueError('Unsupported update mode. Supported modes: "min", "max"')
         
+        # Extract current values from kfold run instance
         current_results, current_k, current_model = current
         current_score = current_results[self.score]['mean']
 
@@ -137,11 +139,25 @@ class KFoldCrossValidator(PathConfig):
 
         super().__init__()
 
-        self.model = model
+        model_abbr = {'Decision_Tree':'dt', 
+                    'XGBoost':'xgb', 
+                    'Random_Forest': 'rf',
+                    'Support_Vector_Machine': 'rf',
+                    'K_Nearest_Neighbours': 'knn',
+                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'Multi_Layer_Perceptron': 'mlp'}
+        
         self.model_name = name
+        self.model_abbr = model_abbr.get(name)
+        
+        self.model = model
         self.k_sens = k_sens
         self.verbose = verbose
         self.native = native
+
+        self.chk_dir = os.path.join(self.model_savepath, self.model_name)
+
+        self.bestmodel_path = ''
     
     def __call__(self, *args: Union[np.any, str], **kwargs: Union[np.any, str]) -> dict:
                
@@ -186,14 +202,13 @@ class KFoldCrossValidator(PathConfig):
 
             kf_cv_summary = self.kfold_cv(X,y,cv_class,cv_wrapper,k)
 
-        return kf_cv_summary 
+        return kf_cv_summary, self.bestmodel_path
 
     # one pass kfold crossvalidation
     def kfold_cv(self,X,y,cv_class,cv_wrapper, k) -> dict:
         
         # Checkpoint path
-        chk_dir = os.path.join(self.model_savepath, self.model_name)
-        self.clean_dir(chk_dir)
+        self.clean_dir(self.chk_dir)
         
         #Cross validation set splitter
         cv = cv_class(n_splits = k)
@@ -209,13 +224,10 @@ class KFoldCrossValidator(PathConfig):
             kf_cv_summary[metric] = kfold_results[metric]['mean']
         
         # Save best model obtained
-        if self.native == 'sk_native':
-            joblib.dump(self.model,os.path.join(chk_dir, f'{self.model_name}_{k}_fold_cv.pkl'))
-        elif self.native == 'mlp':
-            self.model.save(os.path.join(chk_dir, f'{self.model_name}_{k}_fold_cv.keras'))
+        self.save_model(self.model,k)
 
         # Save metrics log for all kfold runs carried out
-        with open(os.path.join(chk_dir, f'{self.model_name}_kfold_cv_scores.txt'), 'w') as file :
+        with open(os.path.join(self.chk_dir, f'{self.model_abbr}_kfold_cv_scores.txt'), 'w') as file :
             file.write(f'Results for cv run with k={k}:' + '\n')
             file.write('-'*72 + '\n')
             for metric in kfold_results.keys():
@@ -228,8 +240,7 @@ class KFoldCrossValidator(PathConfig):
     def ksens_loop(self, X, y, cv_class, cv_wrapper, early_stopper, min_k, max_k) -> dict:
         
         # Checkpoint path
-        chk_dir = os.path.join(self.model_savepath, self.model_name)
-        self.clean_dir(chk_dir)
+        self.clean_dir(self.chk_dir)
         
         # number of kfolds to try as hyperparameter for the cross validation sensitivity
         folds = range(min_k,max_k+1)
@@ -260,6 +271,7 @@ class KFoldCrossValidator(PathConfig):
             if early_stopper.stop: 
                 break
 
+        # get best pack from early stopper
         _, best_fold_idx, best_model = early_stopper.get_best_fold()
 
         # Drop all future kfolds after algorithm has decided to early stop at a best kfold
@@ -267,14 +279,11 @@ class KFoldCrossValidator(PathConfig):
         for key in folds_to_drop:
             del cv_results[key]
         
-        # Save best model obtained
-        if self.native == 'sk_native':
-            joblib.dump(best_model,os.path.join(chk_dir, f'{self.model_name}_best_model_{best_fold_idx}_folds.pkl'))
-        elif self.native == 'mlp':
-            best_model.save(os.path.join(chk_dir, f'{self.model_name}_best_model_{best_fold_idx}_folds.keras'))
-        
+        # save best model
+        self.save_model(best_model,best_fold_idx)
+
         # Save metrics log for all kfold runs carried out
-        with open(os.path.join(chk_dir, f'{self.model_name}_ksens_cv_scores.txt'), 'w') as file :
+        with open(os.path.join(self.chk_dir, f'{self.model_abbr}_ksens_cv_scores.txt'), 'w') as file :
             for k, fold_run in enumerate(cv_results.keys()):
                 file.write(f'Results for cv run with k={k+min_k}: {cv_results[fold_run]}' + '\n')
                 file.write('-'*72 + '\n')
@@ -414,6 +423,20 @@ class KFoldCrossValidator(PathConfig):
 
         return kfold_results
     
+    def save_model(self,best_model,k_idx):
+
+        # Save best model obtained
+        if self.native == 'sk_native':
+            chk_path = os.path.join(self.chk_dir, f'{self.model_abbr}_best_{k_idx}_fold.pkl')
+            joblib.dump(best_model,chk_path)
+
+        elif self.native == 'mlp':
+            chk_path = os.path.join(self.chk_dir, f'{self.model_abbr}_best_{k_idx}_fold.keras')
+            best_model.save(chk_path)
+        
+        # update best model path
+        self.bestmodel_path = chk_path
+
     def print_verbose(self, message):
         if self.verbose:
             print(message)

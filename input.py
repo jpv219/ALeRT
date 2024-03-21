@@ -401,8 +401,11 @@ def main():
         y_df = df[df.columns[out_idx_list]].copy()
 
     # # Filter cases with min/max feature values
-    percentage_choice = input('Define percentages [0,1] of min/max cases to filter out (default: lower,upper = 0,0): ')
+    percentage_choice = input('Define filter percentages [0,1] for min/max cases (default: min_filter,max_filter = 0,0): ')
     percentages = [float(x) for x in percentage_choice.split(',')]
+
+    if len(percentages) < 2:
+        raise ValueError('Either min or max filter percentage was not defined')
 
     X_minmax, y_minmax, X_filtered, y_filtered = dt_processor.filter_minmax([X_df,y_df],bottom=percentages[0],upper=percentages[1])
     

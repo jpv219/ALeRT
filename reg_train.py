@@ -25,7 +25,7 @@ from scikeras.wrappers import KerasRegressor
 #Model metrics and utilities
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from model_utils import KFoldCrossValidator
-from keras.callbacks import ReduceLROnPlateau
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.metrics import R2Score
 
 ############################# PATH UTILITIES ##############################################
@@ -68,6 +68,13 @@ class Regressor(ABC,PathConfig):
     def init_model(self):
         """Initialize the regression model."""
         pass
+
+    def fit_model(self,X_train,y_train,model):
+
+        # Fit model from native sklearn wrapper and return trained model
+        model.fit(X_train,y_train)
+
+        return model
         
     # Model build main pipeline: kfold + gridsearch + kfold
     def model_build(self, data_packs, model, ksens, model_name):
@@ -81,12 +88,7 @@ class Regressor(ABC,PathConfig):
         X_test_arr = X_test.to_numpy()
         y_test_arr = y_test.to_numpy()
 
-        # Carry out Kfold ceoss validation on training sets with or without sensitivity study
-        if ksens.lower() == 'y':
-            k_sens = True
-        else:
-            k_sens = False
-            
+        # select arguments based on regressor type used
         if isinstance(self,MLP):
             native = 'mlp'
             es_score = 'loss'
@@ -95,6 +97,13 @@ class Regressor(ABC,PathConfig):
             native = 'sk_native'
             es_score = 'mse'
 
+        # Determine whether to carry out k sensitivity study on first kfold loop
+        if ksens.lower() == 'y':
+            k_sens = True
+        else:
+            k_sens = False            
+
+        # cross validator arguments
         cv_args = {'cv_type': 'kfold',
                     'n_repeats': 1,
                     'min_k': 3,
@@ -102,9 +111,15 @@ class Regressor(ABC,PathConfig):
                     'k': 8,
                     'earlystop_score': es_score}
         
+        # crossvalidator instance
         cross_validate = KFoldCrossValidator(model, model_name, native, k_sens = k_sens)
 
-        scores = cross_validate(X_train_arr,y_train_arr, **cv_args)
+        cv_scores, model_dir = cross_validate(X_train_arr,y_train_arr, **cv_args)
+
+        print(model_dir)
+        
+        #load best model obtained after first kfold iteration
+
 
         # if isinstance(self,MLP):
         
@@ -129,14 +144,7 @@ class Regressor(ABC,PathConfig):
 
         # scores = [r2,mae,mse]
 
-        return scores
-
-    def fit_model(self,X_train,y_train,model):
-
-        # Fit model from native sklearn wrapper and return trained model
-        model.fit(X_train,y_train)
-
-        return model
+        return cv_scores
 
 ############################# MLP PARENT CLASS ###########################################
 
@@ -193,10 +201,12 @@ class MLP(Regressor):
         epochs = self.kwargs.get('n_epochs', 1)
         batch_size = self.kwargs.get('batch_size', 1)
 
+        stopper = EarlyStopping(monitor='val_loss', patience=10)
+        
         scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.00001)
         
         # Fit Keras native model
-        model.fit(X_train,y_train,validation_split = 0.3,batch_size = batch_size, epochs=epochs, verbose=1, callbacks = [scheduler])
+        model.fit(X_train,y_train,validation_split = 0.3,batch_size = batch_size, epochs=epochs, verbose=1, callbacks = [scheduler,stopper])
 
         return model
 
