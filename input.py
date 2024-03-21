@@ -388,7 +388,7 @@ def main():
         y_df = df[df.columns[out_idx_list]].copy()
 
     # # Filter cases with min/max feature values
-    percentage_choice = input('Define the percentage of cases to filter out (default:(lower,upper)=(0,0)): ')
+    percentage_choice = input('Define the percentage of cases to filter out (default: lower,upper=0,0): ')
     percentages = [float(x) for x in percentage_choice.split(',')]
     X_minmax, y_minmax, X_filtered, y_filtered = dt_processor.filter_minmax([X_df,y_df],bottom=percentages[0],upper=percentages[1])
     
@@ -398,8 +398,8 @@ def main():
     X_scaled = dt_processor.scale_data([X_df.copy(),X_minmax,X_filtered],scaling=scale_choice)
     y_scaled = dt_processor.scale_data([y_df.copy(),y_minmax,y_filtered],scaling=scale_choice)
 
-    dt_processor.plot_scaling(X_df,X_scaled,data_label='inputs')
-    dt_processor.plot_scaling(y_df,y_scaled,data_label='outputs')
+    dt_processor.plot_scaling(X_df,X_scaled[-1],data_label='inputs')
+    dt_processor.plot_scaling(y_df,y_scaled[-1],data_label='outputs')
 
     # train test splitting
     X_train, X_test, y_train, y_test = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.25, random_state=2024)
