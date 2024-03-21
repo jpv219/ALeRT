@@ -75,7 +75,7 @@ class DataReader(PathConfig):
         DOE_df = pd.concat(DOE_list, ignore_index=True)
 
         # Count how many runs are stored successfully in the CSV.
-        run_list = data_df['Run_ID'].tolist()
+        run_list = set(data_df['Run_ID'].tolist())
 
         return data_df, DOE_df, run_list
 
@@ -192,8 +192,7 @@ class DataProcessor(PathConfig):
             y_filtered = y_df.drop(df_min_indices+df_max_indices)
 
         return X_minmax, y_minmax, X_filtered, y_filtered
-                
-    
+
     def scale_data(self,data_pack,scaling):
 
         scaled_data = []
@@ -231,24 +230,36 @@ class DataProcessor(PathConfig):
         return scaled_data
     
     # Visualize data before and after scaling
-    def plot_scaling(self, original_data, scaled_data):
+    def plot_scaling(self, original_data, scaled_data,data_label):
         
-        fig,ax = plt.subplots(len(original_data.columns),2, figsize=(12,int(len(original_data.columns)*5)))
+        num_features = len(original_data.columns)
+        
+        fig,ax = plt.subplots(num_features,2, figsize=(12,int(num_features)*5))
         plt.subplots_adjust(hspace=0.8)
+
+        # If only one output feature is selected, reshape the axes to allow plotting
+        if num_features == 1:
+            ax = ax.reshape((1, 2))
+
         for i, column in enumerate(original_data.columns):
+
+            # Instructions for output features read as arrays from csv
             if original_data[column].dtype == 'object':
+
                 for j in original_data.index:
                     ax[i,0].plot(original_data[column][j])
                     ax[i,0].set_title(f'Data before: {column}')
                 for k in scaled_data.index:
                     ax[i,1].plot(scaled_data[column][k])
                     ax[i,1].set_title(f'Data after: {column}')
+            # Scalar input features
             else:
                 ax[i,0].plot(original_data[column])
                 ax[i,0].set_title(f'Data before: {column}')
                 ax[i,1].plot(scaled_data[column])
                 ax[i,1].set_title(f'Data after: {column}')
-        fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{column}'),dpi=200)
+
+        fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{data_label}'),dpi=200)
         plt.show()
     
     def PCA_reduction(self,df,var_ratio):
@@ -364,9 +375,15 @@ def main():
 
     if out_idx == 'all':
         y_df = df.drop(df.columns[:int(in_idx)], axis = 1)
+
     else:
         #selected variables to preserve
         out_idx_list = [int(x) for x in out_idx.split(',')]
+        
+        # Raise exception if chosen idx are located within the selected input features
+        for idx in out_idx_list:
+            if idx < int(in_idx):
+                raise ValueError(f'idx = {idx} selected is not within the output features idxs : {in_idx} to {param_idx[-1][0]} ')
 
         y_df = df[df.columns[out_idx_list]].copy()
 
@@ -381,8 +398,8 @@ def main():
     X_scaled = dt_processor.scale_data([X_df.copy(),X_minmax,X_filtered],scaling=scale_choice)
     y_scaled = dt_processor.scale_data([y_df.copy(),y_minmax,y_filtered],scaling=scale_choice)
 
-    dt_processor.plot_scaling(X_df,X_scaled[-1])
-    dt_processor.plot_scaling(y_df,y_scaled[-1])
+    dt_processor.plot_scaling(X_df,X_scaled,data_label='inputs')
+    dt_processor.plot_scaling(y_df,y_scaled,data_label='outputs')
 
     # train test splitting
     X_train, X_test, y_train, y_test = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.25, random_state=2024)
