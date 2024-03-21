@@ -8,11 +8,12 @@
 import numpy as np
 import configparser
 import os
+import shutil
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 from sklearn.model_selection import RepeatedKFold, StratifiedKFold, KFold, cross_validate
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
 
 ############################# PATH UTILITIES ##############################################
@@ -42,7 +43,7 @@ class PathConfig:
     def model_savepath(self):
         return self._config['Path']['models']
     
-class EarlyStopping:
+class KFoldEarlyStopping:
 
     def __init__(self, metric, patience = 5, delta = 0.001, verbose = True):
         """
@@ -157,7 +158,11 @@ class KFoldCrossValidator(PathConfig):
         else:
             for filename in os.listdir(dir):
                 file_path = os.path.join(dir,filename)
-                os.remove(file_path)
+
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # Remove directory and its contents
+                else:
+                    os.remove(file_path)
 
     def __call__(self, *args: Union[np.any, str], **kwargs: Union[np.any, str]) -> dict:
                
@@ -187,17 +192,60 @@ class KFoldCrossValidator(PathConfig):
             raise ValueError('Kfold cross validator type not specified or not supported, cv_type = str must be included in cross_validator call')
             
         # Initialize early stopping logic
-        early_stopper = EarlyStopping(es_score, patience= 10, delta= 0.001, verbose = True)
+        early_stopper = KFoldEarlyStopping(es_score, patience= 5, delta= 0.001, verbose = True)
 
+        # run either a full k sensitivity cross validation or single kfold instance for a given k
         if self.k_sens:
             min_k = kwargs.get('min_k',3)
             max_k = kwargs.get('max_k', 50)
 
             kf_cv_summary = self.ksens_loop(X, y, cv_class, cv_wrapper, early_stopper, min_k, max_k)
 
-        return kf_cv_summary   
+        else:
+            k = kwargs.get('k', 5)
 
-    def ksens_loop(self, X, y, cv_class, cv_wrapper, early_stopper, min_k, max_k):
+            kf_cv_summary = self.kfold_cv(X,y,cv_class,cv_wrapper,k)
+
+        return kf_cv_summary 
+
+    # one pass kfold crossvalidation
+    def kfold_cv(self,X,y,cv_class,cv_wrapper, k) -> dict:
+        
+        # Checkpoint path
+        chk_dir = os.path.join(self.model_savepath, self.model_name)
+        self.clean_dir(chk_dir)
+        
+        #Cross validation set splitter
+        cv = cv_class(n_splits = k)
+
+        # calling native cv run instance
+        kfold_results = cv_wrapper(X,y,cv,k)
+
+        # Returning final mean metrics for best fold
+        kf_cv_summary = {'k-fold': k}
+
+        # extracting mean values from fold metrics
+        for metric in kfold_results:
+            kf_cv_summary[metric] = kfold_results[metric]['mean']
+        
+        # Save best model obtained
+        if self.native == 'sk_native':
+            joblib.dump(self.model,os.path.join(chk_dir, f'{self.model_name}_{k}_fold_cv.pkl'))
+        elif self.native == 'mlp':
+            self.model.save(os.path.join(chk_dir, f'{self.model_name}_{k}_fold_cv.keras'))
+
+        # Save metrics log for all kfold runs carried out
+        with open(os.path.join(chk_dir, f'{self.model_name}_kfold_cv_scores.txt'), 'w') as file :
+            file.write(f'Results for cv run with k={k}:' + '\n')
+            file.write('-'*72 + '\n')
+            for metric in kfold_results.keys():
+                file.write(f'{metric}: {kfold_results[metric]}' + '\n')
+                file.write('-'*72 + '\n')
+        
+        return kf_cv_summary
+    
+    # k sensitivity loop kfold cross validation
+    def ksens_loop(self, X, y, cv_class, cv_wrapper, early_stopper, min_k, max_k) -> dict:
         
         # Checkpoint path
         chk_dir = os.path.join(self.model_savepath, self.model_name)
@@ -213,29 +261,15 @@ class KFoldCrossValidator(PathConfig):
 
             self.print_verbose('-'*72)
             self.print_verbose(f'Starting Cross-Validation with {k} folds ...')
-            
-            # Container to store results per k-fold cv run
-            kfold_results = {}
 
             #Cross validation set splitter
             cv = cv_class(n_splits = k)
 
-            scores = cv_wrapper(X, y, cv, k)
+            # call native cv run instance
+            kfold_results = cv_wrapper(X, y, cv, k)
 
-            # Store the overall metrics obtained for the k cross validation run tested
-            for metric in scores.keys():
-                kfold_results[metric] = {'mean': np.mean(scores[metric]),
-                                            'min': np.min(scores[metric]),
-                                            'max': np.max(scores[metric])}
-            
             # Update overall results with k-fold cv instance results
             cv_results[f'kfold_{k}'].update(kfold_results)
-
-            self.print_verbose('-'*72)
-            for metric in kfold_results.keys():
-                self.print_verbose(f'Mean scores with {k} folds: {metric} = {kfold_results[metric]["mean"]};' )
-                
-            self.print_verbose('-'*72)
 
             # Current kfold state
             current = [kfold_results, k, self.model]
@@ -260,7 +294,7 @@ class KFoldCrossValidator(PathConfig):
             best_model.save(os.path.join(chk_dir, f'{self.model_name}_best_model_{best_fold_idx}_folds.keras'))
         
         # Save metrics log for all kfold runs carried out
-        with open(os.path.join(chk_dir, f'{self.model_name}_kfoldcv_scores.txt'), 'w') as file :
+        with open(os.path.join(chk_dir, f'{self.model_name}_ksens_cv_scores.txt'), 'w') as file :
             for k, fold_run in enumerate(cv_results.keys()):
                 file.write(f'Results for cv run with k={k+min_k}: {cv_results[fold_run]}' + '\n')
                 file.write('-'*72 + '\n')
@@ -273,34 +307,45 @@ class KFoldCrossValidator(PathConfig):
             
         return kf_cv_summary
 
-    def sk_native_cv(self, X, y, cv, k):
+    def sk_native_cv(self, X, y, cv, k) -> dict:
             
         scores_abs = {}
         scores = {}
 
-        rename_keys = {'fit_time': 'fit_time','score_time':'score_time',
+        rename_keys = {'estimator':'estimator', 'fit_time': 'fit_time','score_time':'score_time',
                        'test_r2': 'r2', 'test_neg_mean_absolute_error': 'mae',
                        'test_neg_mean_squared_error': 'mse', 'test_explained_variance': 'variance'}
         
         # Extract detailed scores and performance per model
         score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error']
         
-        sk_scores = cross_validate(self.model, X, y, scoring=score_metrics,cv=cv, n_jobs=5, verbose=0) #number of folds X number of repeats
+        sk_scores = cross_validate(self.model, X, y, scoring=score_metrics,cv=cv, n_jobs=5, verbose=0, return_estimator=True) #number of folds X number of repeats
 
         # Store the overall metrics obtained for the k cross validation run tested
         for metric in sk_scores.keys():
-            # Take absolute value from sklearn natively negative metrics
-            if 'neg' in metric:
-                scores_abs[metric] = np.abs(sk_scores[metric])
-            else:
-                scores_abs[metric] = sk_scores[metric]
+            
+            # avoid estimator objects from cross_validate
+            if metric != 'estimator':
+                # Take absolute value from sklearn natively negative metrics
+                if 'neg' in metric:
+                    scores_abs[metric] = np.abs(sk_scores[metric])
+                else:
+                    scores_abs[metric] = sk_scores[metric]
         
-        # rename metrics names for better readability in prints
+        # rename scores_abs metrics names for better readability in prints
         scores = {rename_keys.get(old_key): value for old_key, value in scores_abs.items()}
-        
-        return scores
 
-    def mlp_cv(self, X, y, cv, k):
+        # update self.model with estimator from best fold 
+        best_fold_idx = np.argmin(scores['mse'])
+        estimator = sk_scores['estimator'][best_fold_idx]
+        self.model = estimator
+
+        # calculate mean,max,min for all fold results metrics and return to caller
+        kfold_results = self.store_fold_results(scores,k)
+        
+        return kfold_results
+
+    def mlp_cv(self, X, y, cv, k) -> dict:
 
         # Containers to store results per k-fold cv run
         fold_results = {}
@@ -310,6 +355,9 @@ class KFoldCrossValidator(PathConfig):
 
         # Initialize checkpoint holder
         latest_checkpoint = None
+
+        # keras callbacks
+        early_stopping = EarlyStopping(monitor='val_loss', patience=10)
 
         # Chkpt dir for each kfold instance run
         checkpoint_dir = os.path.join(self.model_savepath, self.model_name, f'{k}_fold_run')
@@ -326,11 +374,11 @@ class KFoldCrossValidator(PathConfig):
                                 monitor='val_loss', save_best_only= True, 
                             verbose=0, mode='min', initial_value_threshold = best_val_loss)
             
-            callbacks_list = [checkpoint]
+            callbacks_list = [checkpoint,early_stopping]
 
             # Fit network with CV split train, val sets and call checkpoint callback
             history = self.model.fit(X[train],y[train], 
-                            validation_data=(X[test], y[test]), epochs = 10, batch_size = 1,
+                            validation_data=(X[test], y[test]), epochs = 50, batch_size = 1,
                             callbacks=callbacks_list,verbose=0)
             
             # Save repeat checkpoint if it has been created  - track last repeat checkpoint created
@@ -360,8 +408,28 @@ class KFoldCrossValidator(PathConfig):
                 else:
                     break
 
-                tf.keras.backend.clear_session()
+        self.print_verbose('-'*72)
+
+        # calculate mean,max,min for all fold results metrics and return to caller
+        kfold_results = self.store_fold_results(fold_results,k)
+
+        return kfold_results
+    
+    def store_fold_results(self,scores,k) -> dict:
+        
+        # Container to store results per k-fold cv run
+        kfold_results = {}
+        
+        # Store the overall metrics obtained for the k cross validation run tested
+        for metric in scores.keys():
+            kfold_results[metric] = {'mean': np.mean(scores[metric]),
+                                        'min': np.min(scores[metric]),
+                                        'max': np.max(scores[metric])}
+
+        self.print_verbose('-'*72)
+        for metric in kfold_results.keys():
+            self.print_verbose(f'Mean scores with {k} folds: {metric} = {kfold_results[metric]["mean"]};' )
             
         self.print_verbose('-'*72)
 
-        return fold_results
+        return kfold_results

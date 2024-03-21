@@ -70,7 +70,7 @@ class Regressor(ABC,PathConfig):
         pass
         
     # Model build main pipeline: kfold + gridsearch + kfold
-    def model_build(self, data_packs, model, kfold, model_name):
+    def model_build(self, data_packs, model, ksens, model_name):
 
         # Reading data arrays for model fit and eval
         X_train, y_train, X_test, y_test = data_packs[:4]
@@ -81,51 +81,53 @@ class Regressor(ABC,PathConfig):
         X_test_arr = X_test.to_numpy()
         y_test_arr = y_test.to_numpy()
 
-        # Carry out repeated Kfold cross validation only on train sets
-        if kfold.lower() == 'y':
-            
-            if isinstance(self,MLP):
-                native = 'mlp'
-                es_score = 'loss'
-                
-            else:
-                native = 'sk_native'
-                es_score = 'mse'
-
-            cv_args = {'cv_type': 'kfold',
-                       'n_repeats': 1,
-                       'min_k': 3,
-                       'max_k':50,
-                       'earlystop_score': es_score}
-            
-            cross_validate = KFoldCrossValidator(model, model_name, native, k_sens= True)
-
-            scores = cross_validate(X_train_arr,y_train_arr, **cv_args)
-
+        # Carry out Kfold ceoss validation on training sets with or without sensitivity study
+        if ksens.lower() == 'y':
+            k_sens = True
         else:
-
-            if isinstance(self,MLP):
+            k_sens = False
             
-                # Add MLP specific hyperparameters
-                epochs = self.kwargs.get('n_epochs', 1)
-                batch_size = self.kwargs.get('batch_size', 1)
-                
-                # Call model fit function
-                tr_model = self.fit_model(X_train_arr,y_train_arr,model)
+        if isinstance(self,MLP):
+            native = 'mlp'
+            es_score = 'loss'
+            
+        else:
+            native = 'sk_native'
+            es_score = 'mse'
 
-            else:
+        cv_args = {'cv_type': 'kfold',
+                    'n_repeats': 1,
+                    'min_k': 3,
+                    'max_k':50,
+                    'k': 8,
+                    'earlystop_score': es_score}
+        
+        cross_validate = KFoldCrossValidator(model, model_name, native, k_sens = k_sens)
 
-                # Call model fit function
-                tr_model = self.fit_model(X_train_arr,y_train_arr,model)
+        scores = cross_validate(X_train_arr,y_train_arr, **cv_args)
 
-            # Carry out predictions and evaluate model performance
-            y_pred = tr_model.predict(X_test_arr)
+        # if isinstance(self,MLP):
+        
+        #     # Add MLP specific hyperparameters
+        #     epochs = self.kwargs.get('n_epochs', 1)
+        #     batch_size = self.kwargs.get('batch_size', 1)
+            
+        #     # Call model fit function
+        #     tr_model = self.fit_model(X_train_arr,y_train_arr,model)
 
-            r2 = r2_score(y_test_arr,y_pred)
-            mae = mean_absolute_error(y_test_arr,y_pred)
-            mse = mean_squared_error(y_test_arr,y_pred)
+        # else:
 
-            scores = [r2,mae,mse]
+        #     # Call model fit function
+        #     tr_model = self.fit_model(X_train_arr,y_train_arr,model)
+
+        # # Carry out predictions and evaluate model performance
+        # y_pred = tr_model.predict(X_test_arr)
+
+        # r2 = r2_score(y_test_arr,y_pred)
+        # mae = mean_absolute_error(y_test_arr,y_pred)
+        # mse = mean_squared_error(y_test_arr,y_pred)
+
+        # scores = [r2,mae,mse]
 
         return scores
 
@@ -422,7 +424,7 @@ def main():
 
     model_name = model_names.get(model_choice)
 
-    kfold_choice = input('Carry out K-fold cross validation? (y/n): ')
+    ksens = input('Carry out Kfold sensitivity cross validation? (y/n): ')
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
@@ -432,7 +434,7 @@ def main():
 
     # Regression training and evaluation
     scores = model_instance.model_build(data_packs, model, 
-                                        kfold_choice, model_name)
+                                        ksens, model_name)
     
     print(scores)
  
