@@ -503,6 +503,56 @@ class KFoldCrossValidator(PathConfig):
                 else:
                     os.remove(file_path)
 
+############################ HYPERPARAMETER TUNING ########################################
+
+class HyperParamTuning(PathConfig):
+
+    ## SEARCH SPACES ##
+    regressor_hp_search_space = {'dt': {'criterion': ['squared_error', 'friedman_mse', 'absolute_error'],
+                'max_depth': [3, 5, 7],
+                'min_samples_split': [2, 5, 10],
+                'min_samples_leaf': [1, 2, 4],
+                'min_impurity_decrease': [0.0, 0.1, 0.2]}, 
+        'xgb': {'max_depth': 5, 'n_estimators': 100}, 
+        'rf': {'n_estimators': 100},
+        'svm': {'C': 1, 'epsilon': 0.1},
+        'knn': {'n_neighbours': 10},
+        'mlp_reg': {'n_dense' : 2,
+                'n_shallow': 2,
+                'n_nodes_d': 128,
+                'n_nodes_s': 64,
+                'n_epochs' : 100,
+                'batch_size' : 1,
+                'act_fn': 'relu'},
+        'mlp': {'n_dense' : 2,
+                'n_shallow': 2,
+                'n_nodes_d': 128,
+                'n_nodes_s': 64,
+                'n_epochs' : 100,
+                'batch_size' : 1,
+                'act_fn': 'relu'}
+
+    }
+
+    def __init__(self, name, model):
+
+        super().__init__()
+
+        model_abbr = {'Decision_Tree':'dt', 
+                    'XGBoost':'xgb', 
+                    'Random_Forest': 'rf',
+                    'Support_Vector_Machine': 'rf',
+                    'K_Nearest_Neighbours': 'knn',
+                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'Multi_Layer_Perceptron': 'mlp'}
+        
+        self.model_name = name
+        self.model_abbr = model_abbr.get(name)
+
+        self.model = model
+    
+    def __call__(self, *args: Union[np.any, str]) :
+        pass
 
 
 
@@ -532,7 +582,7 @@ class ModelEvaluator(PathConfig):
             self.predict()
 
         plt.figure(figsize=(8,6))
-        plt.scatter(self.y_test, self.y_pred, alpha=0.5)
+        plt.scatter(self.y_test, self.y_pred, edgecolor='k',cmap='viridis')
         plt.xlabel('True Data')
         plt.ylabel('Predicted Data')
         plt.title('True vs. Pred dispersion plot')
