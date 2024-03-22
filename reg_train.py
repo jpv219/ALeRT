@@ -117,32 +117,14 @@ class Regressor(ABC,PathConfig):
         cv_scores, model_dir = cross_validate(X_train_arr,y_train_arr, **cv_args)
 
         print(model_dir)
-        
-        #load best model obtained after first kfold iteration
 
-
-        # if isinstance(self,MLP):
-        
-        #     # Add MLP specific hyperparameters
-        #     epochs = self.kwargs.get('n_epochs', 1)
-        #     batch_size = self.kwargs.get('batch_size', 1)
+        # select arguments based on regressor type used
+        if isinstance(self,MLP):
+            model = tf.keras.models.load_model(model_dir)
             
-        #     # Call model fit function
-        #     tr_model = self.fit_model(X_train_arr,y_train_arr,model)
-
-        # else:
-
-        #     # Call model fit function
-        #     tr_model = self.fit_model(X_train_arr,y_train_arr,model)
-
-        # # Carry out predictions and evaluate model performance
-        # y_pred = tr_model.predict(X_test_arr)
-
-        # r2 = r2_score(y_test_arr,y_pred)
-        # mae = mean_absolute_error(y_test_arr,y_pred)
-        # mse = mean_squared_error(y_test_arr,y_pred)
-
-        # scores = [r2,mae,mse]
+        else:
+            model = joblib.load(model_dir)
+        
 
         return cv_scores
 

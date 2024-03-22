@@ -41,7 +41,9 @@ class PathConfig:
     @property
     def model_savepath(self):
         return self._config['Path']['models']
-    
+
+############################ KFOLD CROSS VALIDATION ########################################
+
 class KFoldEarlyStopping:
 
     def __init__(self, metric, patience = 5, delta = 0.001, verbose = True):
@@ -51,8 +53,8 @@ class KFoldEarlyStopping:
                             Default: 0.001
         """
         # stopper attributes
-        self.__counter = 0
-        self.__stop = False
+        self._counter = 0
+        self._stop = False
         self.verbose = verbose
         self.patience = patience
         self.delta = delta
@@ -61,21 +63,61 @@ class KFoldEarlyStopping:
         self.score = metric
 
         # tracking best model overall and each kfold run performance: containing score, k_iteration, model
-        self.__best_score = None 
-        self.__best_k = 0
-        self.__best_model = None
+        self._best_score = None 
+        self._best_k = 0
+        self._best_model = None
 
     @property
     def stop(self):
-        return self.__stop
+        return self._stop
     
+    @stop.setter
+    def stop(self, value):
+        if not isinstance(value, bool):
+            raise ValueError("Stop value must be a boolean.")
+        self._stop = value
+
+    @property
+    def counter(self):
+        return self._counter
+    
+    @counter.setter
+    def counter(self, value):
+        if value < 0:
+            raise ValueError("Counter value cannot be negative.")
+        self._counter = value
+
+    @property
+    def best_score(self):
+        return self._best_score
+    
+    @best_score.setter
+    def best_score(self,value):
+        self._best_score = value
+
+    @property
+    def best_model(self):
+        return self._best_model
+    
+    @best_model.setter
+    def best_model(self,value):
+        self._best_model = value
+
+    @property
+    def best_k(self):
+        return self._best_k
+    
+    @best_k.setter
+    def best_k(self,value):
+        self._best_k = value
+
     def print_verbose(self, message):
         if self.verbose:
             print(message)
 
     # getter for best pack
     def get_best_fold(self) -> list:
-        return [self.__best_score, self.__best_k, self.__best_model]
+        return [self.best_score, self.best_k, self.best_model]
 
     # Call early stopping algorithm
     def __call__(self, current: list, mode = 'min'):
@@ -88,18 +130,18 @@ class KFoldEarlyStopping:
         # if no improvement exists, start counting towards the early stop
         if not has_updated:
 
-            self.__counter += 1
+            self.counter += 1
 
-            self.print_verbose(f'Early stopping counter: {self.__counter} out of {self.patience}')
+            self.print_verbose(f'Early stopping counter: {self.counter} out of {self.patience}')
 
         # Reset early stopping counter if an improvement exists: current = best
         else:
-            self.__counter = 0
+            self.counter = 0
 
         # If counter reaches patience, send stop signal
-        if self.__counter >= self.patience:
+        if self.counter >= self.patience:
 
-            self.__stop = True
+            self.stop = True
 
             self.print_verbose('-'*72)
             self.print_verbose(f'Stopping kfold sensitivity early stopping at fold {current_k}')
@@ -117,19 +159,19 @@ class KFoldEarlyStopping:
         current_results, current_k, current_model = current
         current_score = current_results[self.score]['mean']
 
-        previous_best = self.__best_score
+        previous_best = self.best_score
         
         # Update best attributes if they are none or if an improvement is seen by a porcentual delta
-        if self.__best_score is None or \
-           (mode == 'min' and current_score < self.__best_score - self.delta*self.__best_score) or \
-           (mode == 'max' and current_score > self.__best_score + self.delta*self.__best_score):
+        if self.best_score is None or \
+           (mode == 'min' and current_score < self.best_score - self.delta*self.best_score) or \
+           (mode == 'max' and current_score > self.best_score + self.delta*self.best_score):
             
-            self.__best_score = current_score
-            self.__best_k = current_k
-            self.__best_model = current_model
+            self.best_score = current_score
+            self.best_k = current_k
+            self.best_model = current_model
             has_updated = True
 
-            self.print_verbose(f'Best scores updated at fold {current_k}: {self.score} now at {self.__best_score} from {previous_best}')
+            self.print_verbose(f'Best scores updated at fold {current_k}: {self.score} now at {self.best_score} from {previous_best}')
         
         return has_updated
                 
