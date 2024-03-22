@@ -6,12 +6,15 @@
 ##########################################################################
 
 import numpy as np
+import pandas as pd
 import configparser
 import os
 import shutil
+import matplotlib.pyplot as plt
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
 
@@ -499,3 +502,66 @@ class KFoldCrossValidator(PathConfig):
                     shutil.rmtree(file_path)  # Remove directory and its contents
                 else:
                     os.remove(file_path)
+
+
+
+
+########################### MODEL EVALUATION ##############################################
+                    
+class ModelEvaluator(PathConfig):
+
+    def __init__(self, model, x_test_df: pd.DataFrame, y_test_df: pd.DataFrame, native: str):
+        super().__init__()
+
+        self.model = model
+        self.x_test_df = x_test_df
+        self.y_test_df = y_test_df
+
+        self.x_test = x_test_df.to_numpy()
+        self.y_test = y_test_df.to_numpy()
+
+        self.y_pred = None
+        self.native = native
+
+    def predict(self):
+        self.y_pred = self.model.predict(self.x_test)
+
+    def plot_dispersion(self):
+
+        if self.y_pred is None:
+            self.predict()
+
+        plt.figure(figsize=(8,6))
+        plt.scatter(self.y_test, self.y_pred, alpha=0.5)
+        plt.xlabel('True Data')
+        plt.ylabel('Predicted Data')
+        plt.title('True vs. Pred dispersion plot')
+        plt.show()
+    
+    def plot_r2_hist(self, num_bins = 10):
+
+        if self.y_pred is None:
+            self.predict()
+        
+        r2 = r2_score(self.y_test, self.y_pred)
+
+        plt.figure(figsize=(8,6))
+        plt.hist(r2, num_bins, edgecolor = 'black')
+        plt.xlabel('R2_Score')
+        plt.ylabel('Frequency')
+        plt.title('R2 histogram')
+        plt.show()
+
+    def display_metrics(self):
+
+        if self.y_pred is None:
+            self.predict()
+
+        r2 = r2_score(self.y_test, self.y_pred)
+        mse = mean_squared_error(self.y_test, self.y_pred)
+        mae = mean_absolute_error(self.y_test, self.y_pred)
+
+        print('R2 Score: ', r2)
+        print('Mean Squared Error: ', mse)
+        print('Mean Absolute Error: ', mae)
+

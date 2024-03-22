@@ -22,11 +22,12 @@ from keras.models import Sequential
 from keras.layers import InputLayer, Dense
 from keras.optimizers import Adam
 from scikeras.wrappers import KerasRegressor
+import tensorflow as tf
 #Model metrics and utilities
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from model_utils import KFoldCrossValidator
+from model_utils import KFoldCrossValidator, ModelEvaluator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.metrics import R2Score
+import joblib
 
 ############################# PATH UTILITIES ##############################################
 class PathConfig:
@@ -85,8 +86,7 @@ class Regressor(ABC,PathConfig):
         # Converting into numpy for model fit and prediction
         X_train_arr = X_train.to_numpy()
         y_train_arr = y_train.to_numpy()
-        X_test_arr = X_test.to_numpy()
-        y_test_arr = y_test.to_numpy()
+
 
         # select arguments based on regressor type used
         if isinstance(self,MLP):
@@ -116,8 +116,6 @@ class Regressor(ABC,PathConfig):
 
         cv_scores, model_dir = cross_validate(X_train_arr,y_train_arr, **cv_args)
 
-        print(model_dir)
-
         # select arguments based on regressor type used
         if isinstance(self,MLP):
             model = tf.keras.models.load_model(model_dir)
@@ -125,6 +123,11 @@ class Regressor(ABC,PathConfig):
         else:
             model = joblib.load(model_dir)
         
+        model_eval = ModelEvaluator(model, X_test, y_test, native)
+
+        model_eval.plot_dispersion()
+        model_eval.plot_r2_hist()
+        model_eval.display_metrics()
 
         return cv_scores
 
