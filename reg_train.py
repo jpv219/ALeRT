@@ -24,7 +24,7 @@ from keras.optimizers import Adam
 from scikeras.wrappers import KerasRegressor
 import tensorflow as tf
 #Model metrics and utilities
-from model_utils import KFoldCrossValidator, ModelEvaluator
+from model_utils import KFoldCrossValidator, HyperParamTuning, ModelEvaluator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.metrics import R2Score
 import joblib
@@ -77,8 +77,8 @@ class Regressor(ABC,PathConfig):
 
         return model
         
-    # Model build main pipeline: kfold + gridsearch + kfold
-    def model_build(self, data_packs, model, ksens, model_name):
+    # Model train main pipeline: kfold + gridsearch + kfold
+    def model_train(self, data_packs, model, ksens, model_name):
 
         # Reading data arrays for model fit and eval
         X_train, y_train, X_test, y_test = data_packs[:4]
@@ -108,7 +108,7 @@ class Regressor(ABC,PathConfig):
                     'n_repeats': 1,
                     'min_k': 3,
                     'max_k':50,
-                    'k': 8,
+                    'k': 5,
                     'earlystop_score': es_score}
         
         # crossvalidator instance
@@ -122,6 +122,10 @@ class Regressor(ABC,PathConfig):
             
         else:
             model = joblib.load(model_dir)
+        
+        hyperparam_tuning = HyperParamTuning(model,model_name, native)
+
+        tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'std', fit_score = 'neg_mean_squared_error')
         
         model_eval = ModelEvaluator(model, X_test, y_test, native)
 
@@ -428,7 +432,7 @@ def main():
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    scores = model_instance.model_build(data_packs, model, 
+    scores = model_instance.model_train(data_packs, model, 
                                         ksens, model_name)
     
     print(scores)

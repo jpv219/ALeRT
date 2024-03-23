@@ -11,12 +11,36 @@ import configparser
 import os
 import shutil
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.experimental import enable_halving_search_cv
+from sklearn.model_selection import HalvingGridSearchCV
+from sklearn.model_selection import HalvingRandomSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
+
+
+COLOR_MAP = cm.get_cmap('viridis', 30)
+plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ['Computer Modern']})
+
+SMALL_SIZE = 12
+MEDIUM_SIZE = 14
+BIGGER_SIZE = 15
+plt.rc('font', size=BIGGER_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=BIGGER_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=BIGGER_SIZE + 2)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=BIGGER_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=BIGGER_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=MEDIUM_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 ############################# PATH UTILITIES ##############################################
 class PathConfig:
@@ -180,20 +204,20 @@ class KFoldEarlyStopping:
                 
 class KFoldCrossValidator(PathConfig):
 
-    def __init__(self, model, name: str, native: str, k_sens = True, verbose = True):
-
-        super().__init__()
-
-        model_abbr = {'Decision_Tree':'dt', 
+    model_abbr_map = {'Decision_Tree':'dt', 
                     'XGBoost':'xgb', 
                     'Random_Forest': 'rf',
                     'Support_Vector_Machine': 'rf',
                     'K_Nearest_Neighbours': 'knn',
                     'MLP_Wrapped_Regressor': 'mlp_reg',
                     'Multi_Layer_Perceptron': 'mlp'}
+    
+    def __init__(self, model, name: str, native: str, k_sens = True, verbose = True):
+
+        super().__init__()
         
         self.model_name = name
-        self.model_abbr = model_abbr.get(name)
+        self.model_abbr = KFoldCrossValidator.model_abbr_map.get(name)
         
         self.model = model
         self.k_sens = k_sens
@@ -206,6 +230,7 @@ class KFoldCrossValidator(PathConfig):
     
     def __call__(self, *args: Union[np.any, str], **kwargs: Union[np.any, str]) -> dict:
                
+        # Training data sets
         X, y = args[0], args[1]
 
         # Optional kwargs depending on kfoldcv call
@@ -348,10 +373,11 @@ class KFoldCrossValidator(PathConfig):
 
         rename_keys = {'estimator':'estimator', 'fit_time': 'fit_time','score_time':'score_time',
                        'test_r2': 'r2', 'test_neg_mean_absolute_error': 'mae',
-                       'test_neg_mean_squared_error': 'mse', 'test_explained_variance': 'variance'}
+                       'test_neg_mean_squared_error': 'mse', 'test_explained_variance': 'variance',
+                       'test_neg_root_mean_squared_error':'rmse'}
         
         # Extract detailed scores and performance per model
-        score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error']
+        score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
         
         sk_scores = cross_validate(self.model, X, y, scoring=score_metrics,cv=cv, n_jobs=5, verbose=0, return_estimator=True) #number of folds X number of repeats
 
@@ -534,26 +560,115 @@ class HyperParamTuning(PathConfig):
 
     }
 
-    def __init__(self, name, model):
-
-        super().__init__()
-
-        model_abbr = {'Decision_Tree':'dt', 
+    model_abbr_map = {'Decision_Tree':'dt', 
                     'XGBoost':'xgb', 
                     'Random_Forest': 'rf',
                     'Support_Vector_Machine': 'rf',
                     'K_Nearest_Neighbours': 'knn',
                     'MLP_Wrapped_Regressor': 'mlp_reg',
                     'Multi_Layer_Perceptron': 'mlp'}
+    
+    def __init__(self, model, name, native):
+
+        super().__init__()
         
         self.model_name = name
-        self.model_abbr = model_abbr.get(name)
+        self.model_abbr = HyperParamTuning.model_abbr_map.get(name, None)
+        self.native = native
 
         self.model = model
+
+        if self.model_abbr is None:
+            raise NotImplementedError('Model not supported for Hyperparameter tuning')
     
-    def __call__(self, *args: Union[np.any, str]) :
+    def __call__(self, *args: Union[np.any, str], **kwargs: str) :
+        
+        # Training data sets
+        X, y = args[0], args[1]
+
+        # Optional kwargs depending on tuning cv call
+        tuning_type = kwargs.get('tuning_type')
+        fit_score = kwargs.get('fit_score', 'neg_mean_squared_error')
+
+        # create/clean saving tune directory
+        tune_save_dir = os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
+        self.clean_dir(tune_save_dir)
+
+        param_grid = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+
+        # mode whether going for sknative or MLP hyperparameter tune function
+        if self.native == 'sk_native':
+            search = self.sk_native_tuner(tuning_type,param_grid,fit_score)
+
+        elif self.native == 'mlp':
+            search = self.mlp_hp_tuner(param_grid)
+
+        # Fit model with hyperparam tuning search
+        tuned_model = search.fit(X,y)
+
+        # Get best parameters and best estimator
+        best_params = tuned_model.best_params_
+        best_estimator = tuned_model.best_estimator_
+        best_score = tuned_model.best_score_
+        results_df = pd.DataFrame(tuned_model.cv_results_)
+
+        sorted_results = results_df.sort_values(by='rank_test_' + fit_score)
+
+        # save best performing model and parameter detail to a txt file
+        with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
+            file.write(f'Results summary for top 5 hyperparameter tuning search with {tuning_type} tuner' + '\n')
+            for column in sorted_results.columns:
+                for i in range(len(sorted_results[:5])):
+                    file.write(f'{column[i]}: {sorted_results[column][i]}' + '\n')
+                file.write('-'*72 + '\n')
+
+        print("Best Parameters:", best_params)
+        print("Best Score:", best_score)
+
+        return(best_estimator)
+
+    def sk_native_tuner(self, tuning_type: str, param_grid, fit_score: str):
+        
+        # Select type of hyperparameter tuning process to execute
+        tuners = {'std': GridSearchCV,
+                'random': RandomizedSearchCV,
+                'halving': HalvingGridSearchCV,
+                'halve_random': HalvingRandomSearchCV
+                }
+
+        hp_tuner = tuners.get(tuning_type)
+
+        rename_keys = {'estimator':'estimator', 'fit_time': 'fit_time','score_time':'score_time',
+                    'test_r2': 'r2', 'test_neg_mean_absolute_error': 'mae',
+                    'test_neg_mean_squared_error': 'mse', 'test_explained_variance': 'variance',
+                    'test_neg_root_mean_squared_error':'rmse'}
+        
+        # Extract detailed scores and performance per model
+        score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
+
+        search = hp_tuner(self.model, param_grid, scoring = score_metrics, n_jobs = 5, refit = fit_score, cv = 3, verbose = 2)
+
+        return search
+    
+    def mlp_hp_tuner(self):
         pass
 
+    @staticmethod
+    def clean_dir(dir):
+        
+        # Create kfold run checkpoint folder
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+        # clean if previous files exist
+        else:
+            for filename in os.listdir(dir):
+                file_path = os.path.join(dir,filename)
+
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # Remove directory and its contents
+                else:
+                    os.remove(file_path)
 
 
 ########################### MODEL EVALUATION ##############################################
@@ -582,7 +697,7 @@ class ModelEvaluator(PathConfig):
             self.predict()
 
         plt.figure(figsize=(8,6))
-        plt.scatter(self.y_test, self.y_pred, edgecolor='k',cmap='viridis')
+        plt.scatter(self.y_test, self.y_pred, edgecolor='k', c= self.y_test, cmap=COLOR_MAP)
         plt.xlabel('True Data')
         plt.ylabel('Predicted Data')
         plt.title('True vs. Pred dispersion plot')
