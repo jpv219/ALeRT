@@ -78,7 +78,7 @@ class Regressor(ABC,PathConfig):
         return model
         
     # Model train main pipeline: kfold + gridsearch + kfold
-    def model_train(self, data_packs, model, ksens, model_name):
+    def model_train(self, data_packs, model, kf, model_name):
 
         # Reading data arrays for model fit and eval
         X_train, y_train, X_test, y_test = data_packs[:4]
@@ -87,8 +87,11 @@ class Regressor(ABC,PathConfig):
         X_train_arr = X_train.to_numpy()
         y_train_arr = y_train.to_numpy()
 
+        # Kfold user inputs
+        skip_kfold = kf.get('skip_kfold')
+        ksens = kf.get('ksens')
 
-        # select arguments based on regressor type used
+        # select features and args based on regressor type used
         if isinstance(self,MLP):
             native = 'mlp'
             es_score = 'loss'
@@ -97,31 +100,34 @@ class Regressor(ABC,PathConfig):
             native = 'sk_native'
             es_score = 'mse'
 
-        # Determine whether to carry out k sensitivity study on first kfold loop
-        if ksens.lower() == 'y':
-            k_sens = True
-        else:
-            k_sens = False            
+        # skip or not early kfold
+        if not skip_kfold:
 
-        # cross validator arguments
-        cv_args = {'cv_type': 'kfold',
-                    'n_repeats': 1,
-                    'min_k': 3,
-                    'max_k':50,
-                    'k': 5,
-                    'earlystop_score': es_score}
-        
-        # crossvalidator instance
-        cross_validate = KFoldCrossValidator(model, model_name, native, k_sens = k_sens)
+            # Determine whether to carry out k sensitivity study on first kfold loop
+            if ksens.lower() == 'y':
+                k_sens = True
+            else:
+                k_sens = False            
 
-        cv_scores, model_dir = cross_validate(X_train_arr,y_train_arr, **cv_args)
-
-        # select arguments based on regressor type used
-        if isinstance(self,MLP):
-            model = tf.keras.models.load_model(model_dir)
+            # cross validator arguments
+            cv_args = {'cv_type': 'kfold',
+                        'n_repeats': 1,
+                        'min_k': 3,
+                        'max_k':50,
+                        'k': 5,
+                        'earlystop_score': es_score}
             
-        else:
-            model = joblib.load(model_dir)
+            # crossvalidator instance
+            cross_validate = KFoldCrossValidator(model, model_name, native, k_sens = k_sens)
+
+            cv_scores, model_dir = cross_validate(X_train_arr,y_train_arr, **cv_args)
+
+            # select arguments based on regressor type used
+            if isinstance(self,MLP):
+                model = tf.keras.models.load_model(model_dir)
+                
+            else:
+                model = joblib.load(model_dir)
         
         hyperparam_tuning = HyperParamTuning(model,model_name, native)
 
@@ -423,7 +429,16 @@ def main():
 
     model_name = model_names.get(model_choice)
 
-    ksens = input('Carry out Kfold sensitivity cross validation? (y/n): ')
+    skip_kfold = input('Skip pre-Kfold cross validation? (y/n): ')
+    
+    # Decide whether to do pre-kfold and include k sensitivity
+    if not skip_kfold:
+        ksens = input('Include K-sensitivity? (y/n): ')
+    else:
+        ksens = 'n'
+
+    kf = {'skip_kfold': skip_kfold,
+          'ksens' : ksens}
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
@@ -433,7 +448,7 @@ def main():
 
     # Regression training and evaluation
     scores = model_instance.model_train(data_packs, model, 
-                                        ksens, model_name)
+                                        kf, model_name)
     
     print(scores)
  
