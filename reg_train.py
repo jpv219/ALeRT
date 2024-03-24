@@ -89,7 +89,7 @@ class Regressor(ABC,PathConfig):
 
         # Kfold user inputs
         skip_kfold = kf.get('skip_kfold')
-        ksens = kf.get('ksens')
+        k_sens = kf.get('ksens')
 
         # select features and args based on regressor type used
         if isinstance(self,MLP):
@@ -102,12 +102,6 @@ class Regressor(ABC,PathConfig):
 
         # skip or not early kfold
         if not skip_kfold:
-
-            # Determine whether to carry out k sensitivity study on first kfold loop
-            if ksens.lower() == 'y':
-                k_sens = True
-            else:
-                k_sens = False            
 
             # cross validator arguments
             cv_args = {'cv_type': 'kfold',
@@ -122,6 +116,8 @@ class Regressor(ABC,PathConfig):
 
             cv_scores, model_dir = cross_validate(X_train_arr,y_train_arr, **cv_args)
 
+            print(cv_scores)
+
             # select arguments based on regressor type used
             if isinstance(self,MLP):
                 model = tf.keras.models.load_model(model_dir)
@@ -131,15 +127,15 @@ class Regressor(ABC,PathConfig):
         
         hyperparam_tuning = HyperParamTuning(model,model_name, native)
 
-        tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'std', fit_score = 'neg_mean_squared_error')
+        # calling hyperparam tuning wth modes: std, halving, random, halve_random
+        tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'halving', fit_score = 'neg_mean_squared_error')
         
-        model_eval = ModelEvaluator(model, X_test, y_test, native)
+        model_eval = ModelEvaluator(tuned_model, X_test, y_test, native)
 
         model_eval.plot_dispersion()
         model_eval.plot_r2_hist()
         model_eval.display_metrics()
 
-        return cv_scores
 
 ############################# MLP PARENT CLASS ###########################################
 
@@ -392,7 +388,10 @@ def main():
                 'min_samples_split': 2,
                 'min_samples_leaf': 1,
                 'min_impurity_decrease': 0}, 
-        'xgb': {'max_depth': 5, 'n_estimators': 100}, 
+        'xgb': {'max_depth': 5, 'n_estimators': 100, 'learning_rate': 0.1,
+                'min_child_weight': 1, 'subsample': 0.9,
+                'colsample_bytree': 0.8, 'gamma': 0.1,
+                'lambda': 0.01, 'alpha': 0.01}, 
         'rf': {'n_estimators': 100},
         'svm': {'C': 1, 'epsilon': 0.1},
         'knn': {'n_neighbours': 10},
@@ -432,13 +431,13 @@ def main():
     skip_kfold = input('Skip pre-Kfold cross validation? (y/n): ')
     
     # Decide whether to do pre-kfold and include k sensitivity
-    if not skip_kfold:
+    if skip_kfold == 'n':
         ksens = input('Include K-sensitivity? (y/n): ')
     else:
         ksens = 'n'
 
-    kf = {'skip_kfold': skip_kfold,
-          'ksens' : ksens}
+    kf = {'skip_kfold': True if skip_kfold == 'y' else False,
+          'ksens' : True if ksens == 'y' else False}
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
@@ -447,10 +446,9 @@ def main():
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    scores = model_instance.model_train(data_packs, model, 
+    model_instance.model_train(data_packs, model, 
                                         kf, model_name)
     
-    print(scores)
  
 
 if __name__ == "__main__":

@@ -535,11 +535,15 @@ class HyperParamTuning(PathConfig):
 
     ## SEARCH SPACES ##
     regressor_hp_search_space = {'dt': {'criterion': ['squared_error', 'friedman_mse', 'absolute_error'],
-                'max_depth': [3, 5, 7],
+                'max_depth': [2, 4, 6, 8],
                 'min_samples_split': [2, 5, 10],
                 'min_samples_leaf': [1, 2, 4],
                 'min_impurity_decrease': [0.0, 0.1, 0.2]}, 
-        'xgb': {'max_depth': 5, 'n_estimators': 100}, 
+        'xgb': {'max_depth': [3,5,7,9], 'n_estimators': [100,200,300,400,500],
+                'learning_rate': [0.001,0.01,0.1,0.3], 'min_child_weight': [1,3,5,7],
+                'subsample': [0.5,0.7,1], 'colsample_bytree': [0.6, 0.8, 1.0],
+                'gamma': [0, 0.1, 0.2, 0.3, 0.4], 'lambda' : [0.01, 0.1, 1.0],
+                'alpha': [0.01, 0.1, 1.0]}, 
         'rf': {'n_estimators': 100},
         'svm': {'C': 1, 'epsilon': 0.1},
         'knn': {'n_neighbours': 10},
@@ -623,7 +627,7 @@ class HyperParamTuning(PathConfig):
                 file.write('-'*72 + '\n')
 
         print("Best Parameters:", best_params)
-        print("Best Score:", best_score)
+        print("Best Score at Tuning:", -best_score)
 
         return(best_estimator)
 
@@ -646,7 +650,10 @@ class HyperParamTuning(PathConfig):
         # Extract detailed scores and performance per model
         score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
 
-        search = hp_tuner(self.model, param_grid, scoring = score_metrics, n_jobs = 5, refit = fit_score, cv = 3, verbose = 2)
+        if 'halv' in tuning_type:
+            search = hp_tuner(self.model, param_grid, scoring = fit_score, n_jobs = 5, cv = 3, verbose = 2)
+        else:
+            search = hp_tuner(self.model, param_grid, scoring = score_metrics, n_jobs = 5, refit = fit_score, cv = 3, verbose = 2)
 
         return search
     
