@@ -78,7 +78,7 @@ class Regressor(ABC,PathConfig):
         return model
         
     # Model train main pipeline: kfold + gridsearch + kfold
-    def model_train(self, data_packs: list, model, kf: dict, model_name: str):
+    def model_train(self, data_packs: list, model, cv_choices: dict, model_name: str):
 
         """
     Trains a regressor using K-fold cross-validation
@@ -87,7 +87,7 @@ class Regressor(ABC,PathConfig):
     Parameters:
     - data_packs (list): Data arrays for model fitting and evaluation.
                           Typically includes features (X_train, X_test) and target values (y_train, y_test).
-    - model: Regressor object to be trained.
+    - model: Regressor object to be trained, whether sklearn or MLP native
     - kf (dict): Parameters related to the K-fold cross-validation setup and early stopping criteria.
                 - skip_kfold (bool): Whether to skip the K-fold cross-validation step.
                 - ksens: Sensitivity parameter for K-fold cross-validation, if applicable.
@@ -95,9 +95,17 @@ class Regressor(ABC,PathConfig):
 
     Options for es_score:
     - 'mse': Mean Squared Error
-    - 'loss': Loss (typically for neural network models)
+    - 'loss': Loss as defined for the MLP models (usually mse)
     - 'mae': Mean Absolute Error
     - 'r2': R-squared score
+
+    Options for cv_type:
+    - 'kfold': Standard Kfold cross validator
+    - 'repeated': Repeat Kfold cross validator. n_repeats has to be specified alongside this cv
+
+    Options in cv_args:
+    - 'min_k'm 'max_k': Specified when k_sens is True to determine the extent of the K values to test
+    - 'k': Specified when kfold cv_type is specified, determining the number of folds to run
 
     Options for tuning_type:
     - 'std': Standard GridSearchCV.
@@ -122,8 +130,9 @@ class Regressor(ABC,PathConfig):
         y_train_arr = y_train.to_numpy()
 
         # Kfold user inputs
-        skip_kfold = kf.get('skip_kfold')
-        k_sens = kf.get('ksens')
+        skip_kfold = cv_choices.get('skip_kfold')
+        k_sens = cv_choices.get('ksens')
+        skip_hp_tune = cv_choices.get('hp_tune')
 
         # select features and args based on regressor type used
         if isinstance(self,MLP):
@@ -139,7 +148,7 @@ class Regressor(ABC,PathConfig):
 
             # cross validator arguments
             cv_args = {'cv_type': 'kfold',
-                        'n_repeats': 1,
+                        'n_repeats': 3,
                         'min_k': 3,
                         'max_k':50,
                         'k': 5,
@@ -159,11 +168,17 @@ class Regressor(ABC,PathConfig):
             else:
                 model = joblib.load(model_dir)
         
-        hyperparam_tuning = HyperParamTuning(model,model_name, native)
+        # skip or not hyperparam tuning
+        if not skip_hp_tune:
+        
+            hyperparam_tuning = HyperParamTuning(model,model_name, native)
 
-        # calling hyperparam tuning. if random selected
-        tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'random', n_iter = 600, 
-                                        fit_score = 'mse')
+            # calling hyperparam tuning. if random selected
+            tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'random', n_iter = 30, 
+                                            fit_score = 'mse')
+        else:
+
+            tuned_model = self.fit_model(X_train_arr,y_train_arr,model)
 
         return tuned_model
     
@@ -489,9 +504,12 @@ def main():
         ksens = input('Include K-sensitivity? (y/n): ')
     else:
         ksens = 'n'
+    
+    skip_hp_tune = input('Skip hyperparameter tuning cross-validation? (y/n): ')
 
-    kf = {'skip_kfold': True if skip_kfold == 'y' else False,
-          'ksens' : True if ksens == 'y' else False}
+    cv_choices = {'skip_kfold': True if skip_kfold == 'y' else False,
+          'ksens' : True if ksens == 'y' else False,
+          'hp_tune': True if skip_hp_tune == 'y' else False}
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
@@ -501,7 +519,7 @@ def main():
 
     # Regression training and evaluation
     tuned_model = model_instance.model_train(data_packs, model, 
-                                        kf, model_name)
+                                        cv_choices, model_name)
     # Calling model evaluate with tuned model
     model_instance.model_evaluate(tuned_model, data_packs)
 

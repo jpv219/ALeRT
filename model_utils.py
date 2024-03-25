@@ -235,7 +235,7 @@ class KFoldCrossValidator(PathConfig):
 
         # Optional kwargs depending on kfoldcv call
         cv_type = kwargs.get('cv_type')
-        n_repeats = kwargs.get('n_repeats', 5)
+        n_repeats = kwargs.get('n_repeats', 3)
         es_score = kwargs.get('earlystop_score', 'mse')
 
         # If cv_type is 'repeated', specify the number of repeats
@@ -606,13 +606,12 @@ class HyperParamTuning(PathConfig):
 
         # get sklearn appropaite identifier for fit score
         fit_score = HyperParamTuning.rename_keys.get(input_score)
+        # get hyperparameter searcher
+        param_grid = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
 
         # create/clean saving tune directory
         tune_save_dir = os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
         self.clean_dir(tune_save_dir)
-
-        # get hyperparameter searcher
-        param_grid = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
 
         # mode whether going for sknative or MLP hyperparameter tune function
         if self.native == 'sk_native':
@@ -632,13 +631,14 @@ class HyperParamTuning(PathConfig):
 
         # extract score column to rank best trials executed during search
         rank_column = [col for col in results_df.columns if col == 'rank_test_' + fit_score or col.startswith('rank_test_')]
-        
         sorted_results = results_df.sort_values(by=rank_column)
 
         # save best performing model and parameter detail to a txt file
         with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
-            file.write(f'Results summary for top 5 hyperparameter tuning search with {tuning_type} tuner' + '\n')
+            file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
+            
             for column in sorted_results.columns:
+                #write only top 5 cases from sorted dataframe
                 for i in range(len(sorted_results[:5])):
                     file.write(f'{column}: {sorted_results[column][i]}' + '\n')
                 file.write('-'*72 + '\n')
