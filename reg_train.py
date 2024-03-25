@@ -88,9 +88,10 @@ class Regressor(ABC,PathConfig):
     - data_packs (list): Data arrays for model fitting and evaluation.
                           Typically includes features (X_train, X_test) and target values (y_train, y_test).
     - model: Regressor object to be trained, whether sklearn or MLP native
-    - kf (dict): Parameters related to the K-fold cross-validation setup and early stopping criteria.
+    - cv_choices (dict): User inputs to determine which steps to carry out during model building and train.
                 - skip_kfold (bool): Whether to skip the K-fold cross-validation step.
-                - ksens: Sensitivity parameter for K-fold cross-validation, if applicable.
+                - ksens (bool): Whether to carry out sensitvity analysis on the numer of k-folds to perform, if applicable.
+                - skip_hp_tune (bool): Whether to skip the Hyperparameter tuning cross-validation step.
     - model_name (str): Name or identifier for the model being trained.
 
     Options for es_score:
@@ -171,23 +172,23 @@ class Regressor(ABC,PathConfig):
         # skip or not hyperparam tuning
         if not skip_hp_tune:
         
-            hyperparam_tuning = HyperParamTuning(model,model_name, native)
+            hyperparam_tuning = HyperParamTuning(model,model_name, native, verbose= True)
 
             # calling hyperparam tuning. if random selected
-            tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'random', n_iter = 30, 
+            tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'std', n_iter = 30, 
                                             fit_score = 'mse')
+        
+        elif not skip_kfold and skip_hp_tune:
+            return model
+        
         else:
-
             tuned_model = self.fit_model(X_train_arr,y_train_arr,model)
 
         return tuned_model
     
     def model_evaluate(self,tuned_model,data_packs):
-        
-        # Reading data arrays for model fit and eval
-        _, _, X_test, y_test = data_packs[:4]
             
-        model_eval = ModelEvaluator(tuned_model, X_test, y_test)
+        model_eval = ModelEvaluator(tuned_model, data_packs)
 
         model_eval.plot_dispersion()
         model_eval.plot_r2_hist()
@@ -273,6 +274,10 @@ class DecisionTreeWrapper(Regressor):
         min_samples_split = self.kwargs.get('min_samples_split',2)
         min_samples_leaf = self.kwargs.get('min_samples_leaf',1)
         min_impurity_decrease = self.kwargs.get('min_impurity_decrease',0)
+        max_leaf_nodes = self.kwargs.get('max_leaf_nodes', None)
+        splitter = self.kwargs.get('splitter', 'best')
+
+
         random_state = self.kwargs.get('random_state',2024)
 
 
@@ -282,6 +287,7 @@ class DecisionTreeWrapper(Regressor):
         return DecisionTreeRegressor(criterion=criterion,
                                      max_depth=max_depth, min_samples_split=min_samples_split, 
                                      min_samples_leaf=min_samples_leaf, min_impurity_decrease=min_impurity_decrease,
+                                     max_leaf_nodes= max_leaf_nodes, splitter= splitter,
                                      random_state = random_state)
     
     def model_build(self, data_packs, model, kfold, model_name):
@@ -452,11 +458,13 @@ def main():
                     'mlp': MLPWrapper}
     
     hyperparameters = {
-        'dt': {'criterion': 'squared_error',
-                'max_depth': 5,
-                'min_samples_split': 2,
-                'min_samples_leaf': 1,
-                'min_impurity_decrease': 0}, 
+        'dt': {'criterion': 'absolute_error',
+                'max_depth': 8,
+                'min_samples_split': 4,
+                'min_samples_leaf': 4,
+                'min_impurity_decrease': 0,
+                'max_leaf_nodes': None,
+                'splitter': 'best'}, 
         'xgb': {'max_depth': 5, 'n_estimators': 100, 'learning_rate': 0.1,
                 'min_child_weight': 1, 'subsample': 0.9,
                 'colsample_bytree': 0.8, 'gamma': 0.1,
