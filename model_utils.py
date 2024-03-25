@@ -572,6 +572,15 @@ class HyperParamTuning(PathConfig):
                     'MLP_Wrapped_Regressor': 'mlp_reg',
                     'Multi_Layer_Perceptron': 'mlp'}
     
+    rename_keys = {
+            'r2': 'r2',
+            'mae': 'neg_mean_absolute_error',
+            'mse': 'neg_mean_squared_error',
+            'variance': 'explained_variance',
+            'rmse': 'neg_root_mean_squared_error'
+        }
+    
+    
     def __init__(self, model, name, native):
 
         super().__init__()
@@ -592,17 +601,22 @@ class HyperParamTuning(PathConfig):
 
         # Optional kwargs depending on tuning cv call
         tuning_type = kwargs.get('tuning_type')
-        fit_score = kwargs.get('fit_score', 'neg_mean_squared_error')
+        input_score = kwargs.get('fit_score', 'mse')
+        n_iter  = kwargs.get('n_iter',None)
+
+        # get sklearn appropaite identifier for fit score
+        fit_score = HyperParamTuning.rename_keys.get(input_score)
 
         # create/clean saving tune directory
         tune_save_dir = os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
         self.clean_dir(tune_save_dir)
 
+        # get hyperparameter searcher
         param_grid = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
 
         # mode whether going for sknative or MLP hyperparameter tune function
         if self.native == 'sk_native':
-            search = self.sk_native_tuner(tuning_type,param_grid,fit_score)
+            search = self.sk_native_tuner(tuning_type,param_grid,fit_score, n_iter)
 
         elif self.native == 'mlp':
             search = self.mlp_hp_tuner(param_grid)
@@ -616,14 +630,17 @@ class HyperParamTuning(PathConfig):
         best_score = tuned_model.best_score_
         results_df = pd.DataFrame(tuned_model.cv_results_)
 
-        sorted_results = results_df.sort_values(by='rank_test_' + fit_score)
+        # extract score column to rank best trials executed during search
+        rank_column = [col for col in results_df.columns if col == 'rank_test_' + fit_score or col.startswith('rank_test_')]
+        
+        sorted_results = results_df.sort_values(by=rank_column)
 
         # save best performing model and parameter detail to a txt file
         with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
             file.write(f'Results summary for top 5 hyperparameter tuning search with {tuning_type} tuner' + '\n')
             for column in sorted_results.columns:
                 for i in range(len(sorted_results[:5])):
-                    file.write(f'{column[i]}: {sorted_results[column][i]}' + '\n')
+                    file.write(f'{column}: {sorted_results[column][i]}' + '\n')
                 file.write('-'*72 + '\n')
 
         print("Best Parameters:", best_params)
@@ -631,7 +648,7 @@ class HyperParamTuning(PathConfig):
 
         return(best_estimator)
 
-    def sk_native_tuner(self, tuning_type: str, param_grid, fit_score: str):
+    def sk_native_tuner(self, tuning_type: str, param_grid, fit_score: str, n_iter = 1000):
         
         # Select type of hyperparameter tuning process to execute
         tuners = {'std': GridSearchCV,
@@ -640,20 +657,20 @@ class HyperParamTuning(PathConfig):
                 'halve_random': HalvingRandomSearchCV
                 }
 
-        hp_tuner = tuners.get(tuning_type)
+        hp_tuner = tuners.get(tuning_type, None)
 
-        rename_keys = {'estimator':'estimator', 'fit_time': 'fit_time','score_time':'score_time',
-                    'test_r2': 'r2', 'test_neg_mean_absolute_error': 'mae',
-                    'test_neg_mean_squared_error': 'mse', 'test_explained_variance': 'variance',
-                    'test_neg_root_mean_squared_error':'rmse'}
+        if hp_tuner is None:
+            raise NotImplementedError(f'hyperparam searching method specified: {tuning_type} is not supported')
         
         # Extract detailed scores and performance per model
         score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
 
         if 'halv' in tuning_type:
-            search = hp_tuner(self.model, param_grid, scoring = fit_score, n_jobs = 5, cv = 3, verbose = 2)
+            search = hp_tuner(self.model, param_grid, scoring = fit_score, n_jobs = -1, cv = 3, verbose = 2)
+        elif tuning_type == 'random':
+            search = hp_tuner(self.model, param_grid, scoring = fit_score, n_iter = n_iter, n_jobs = -1, cv = 3, verbose = 2)
         else:
-            search = hp_tuner(self.model, param_grid, scoring = score_metrics, n_jobs = 5, refit = fit_score, cv = 3, verbose = 2)
+            search = hp_tuner(self.model, param_grid, scoring = score_metrics, n_jobs = -1, refit = fit_score, cv = 3, verbose = 2)
 
         return search
     
@@ -682,7 +699,7 @@ class HyperParamTuning(PathConfig):
                     
 class ModelEvaluator(PathConfig):
 
-    def __init__(self, model, x_test_df: pd.DataFrame, y_test_df: pd.DataFrame, native: str):
+    def __init__(self, model, x_test_df: pd.DataFrame, y_test_df: pd.DataFrame):
         super().__init__()
 
         self.model = model
@@ -693,7 +710,6 @@ class ModelEvaluator(PathConfig):
         self.y_test = y_test_df.to_numpy()
 
         self.y_pred = None
-        self.native = native
 
     def predict(self):
         self.y_pred = self.model.predict(self.x_test)
@@ -703,11 +719,20 @@ class ModelEvaluator(PathConfig):
         if self.y_pred is None:
             self.predict()
 
+        x = np.linspace(-1,1,100)
+        y = x
+        pos_dev = -1 +1.2*(x+1)
+        neg_dev = -1 +0.8*(x+1)
+
         plt.figure(figsize=(8,6))
+        plt.plot(x,y,label = 'x=y', color = 'k', linewidth = 2.5)
+        plt.plot(x,pos_dev, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')
+        plt.plot(x,neg_dev, label = '-20%', color = 'r', linewidth = 1.5, linestyle = '--')
         plt.scatter(self.y_test, self.y_pred, edgecolor='k', c= self.y_test, cmap=COLOR_MAP)
         plt.xlabel('True Data')
         plt.ylabel('Predicted Data')
         plt.title('True vs. Pred dispersion plot')
+        plt.legend()
         plt.show()
     
     def plot_r2_hist(self, num_bins = 10):

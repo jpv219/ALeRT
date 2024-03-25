@@ -78,10 +78,44 @@ class Regressor(ABC,PathConfig):
         return model
         
     # Model train main pipeline: kfold + gridsearch + kfold
-    def model_train(self, data_packs, model, kf, model_name):
+    def model_train(self, data_packs: list, model, kf: dict, model_name: str):
+
+        """
+    Trains a regressor using K-fold cross-validation
+    along with hyperparameter tuning.
+
+    Parameters:
+    - data_packs (list): Data arrays for model fitting and evaluation.
+                          Typically includes features (X_train, X_test) and target values (y_train, y_test).
+    - model: Regressor object to be trained.
+    - kf (dict): Parameters related to the K-fold cross-validation setup and early stopping criteria.
+                - skip_kfold (bool): Whether to skip the K-fold cross-validation step.
+                - ksens: Sensitivity parameter for K-fold cross-validation, if applicable.
+    - model_name (str): Name or identifier for the model being trained.
+
+    Options for es_score:
+    - 'mse': Mean Squared Error
+    - 'loss': Loss (typically for neural network models)
+    - 'mae': Mean Absolute Error
+    - 'r2': R-squared score
+
+    Options for tuning_type:
+    - 'std': Standard GridSearchCV.
+    - 'halving': HalvingGridSearchCV.
+    - 'random': RandomizedSearchCV. (optional) n_iter can be specified to change the number of random runs to be performed
+    - 'halve_random': Combining Halving and Random search hyperparameter tuning.
+
+    Options for fit_score:
+    - 'mse': Mean Squared Error
+    - 'mae': Mean Absolute Error
+    - 'r2': R-squared score
+
+    Returns:
+    - tuned_model: The trained model with optimized hyperparameters.
+    """
 
         # Reading data arrays for model fit and eval
-        X_train, y_train, X_test, y_test = data_packs[:4]
+        X_train, y_train = data_packs[:2]
 
         # Converting into numpy for model fit and prediction
         X_train_arr = X_train.to_numpy()
@@ -127,10 +161,18 @@ class Regressor(ABC,PathConfig):
         
         hyperparam_tuning = HyperParamTuning(model,model_name, native)
 
-        # calling hyperparam tuning wth modes: std, halving, random, halve_random
-        tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'halving', fit_score = 'neg_mean_squared_error')
+        # calling hyperparam tuning. if random selected
+        tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'random', n_iter = 600, 
+                                        fit_score = 'mse')
+
+        return tuned_model
+    
+    def model_evaluate(self,tuned_model,data_packs):
         
-        model_eval = ModelEvaluator(tuned_model, X_test, y_test, native)
+        # Reading data arrays for model fit and eval
+        _, _, X_test, y_test = data_packs[:4]
+            
+        model_eval = ModelEvaluator(tuned_model, X_test, y_test)
 
         model_eval.plot_dispersion()
         model_eval.plot_r2_hist()
@@ -239,12 +281,24 @@ class XGBoostWrapper(Regressor):
 
         max_depth = self.kwargs.get('max_depth',None)
         n_estimators = self.kwargs.get('n_estimators',None)
+        learning_rate = self.kwargs.get('learning_rate',0.1)
+        min_child_weight = self.kwargs.get('min_child_weight',1 )
+        subsample = self.kwargs.get('subsample',1 )
+        colsample_bytree = self.kwargs.get('colsample_bytree',0.8)
+        gamma = self.kwargs.get('gamma', 0.1)
+        reg_lambda = self.kwargs.get('lambda', 0.01)
+        reg_alpha = self.kwargs.get('alpha',0.01)
+
         random_state = self.kwargs.get('random_state',2024)
 
         if max_depth is None or n_estimators is None:
             raise ValueError('Missing input arguments: Max_depth/n_estimators')
         
-        return XGBRegressor(max_depth=max_depth, n_estimators = n_estimators , random_state=random_state)
+        return XGBRegressor(max_depth=max_depth, n_estimators = n_estimators,
+                            learning_rate = learning_rate, min_child_weight = min_child_weight,
+                             subsample = subsample, colsample_bytree = colsample_bytree,
+                              gamma = gamma, reg_lambda = reg_lambda, reg_alpha = reg_alpha,
+                                random_state=random_state)
     
     def model_build(self, data_packs, model, kfold, model_name):
         return super().model_build(data_packs, model, kfold, model_name)
@@ -446,10 +500,10 @@ def main():
     model = model_instance.init_model()
 
     # Regression training and evaluation
-    model_instance.model_train(data_packs, model, 
+    tuned_model = model_instance.model_train(data_packs, model, 
                                         kf, model_name)
-    
- 
+    # Calling model evaluate with tuned model
+    model_instance.model_evaluate(tuned_model, data_packs)
 
 if __name__ == "__main__":
     main()
