@@ -44,11 +44,13 @@ class LogScaler:
         self.log_base = np.log(self.base)
 
     def fit(self, X, y=None):
-        # No operation needed during fitting, built in for compatibility with sklearn scalers
+        # No operation needed during fitting
         return self
     
     def transform(self,X):
-        return np.log(X) / self.log_base
+        # use the log modulus transformation: preserves zero and the function acts like the log (base 10) function when non-zero
+        log_modulus_X = np.sign(X) * np.log(np.abs(X)+1) / self.log_base
+        return log_modulus_X
     
     def fit_transform(self,X):
         self.fit(X)
@@ -132,21 +134,6 @@ class DataReader(PathConfig):
                 df[column] = df[column].astype(float)
 
         return df
-    
-class LogScaler:
-    def __init__(self,base=10):
-        self.base = base
-        self.log_base = np.log(self.base)
-    def fit(self, X, y=None):
-        # No operation needed during fitting
-        return self
-    def transform(self,X):
-        # use the log modulus transformation: preserves zero and the function acts like the log (base 10) function when non-zero
-        log_modulus_X = np.sign(X) * np.log(np.abs(X)+1) / self.log_base
-        return log_modulus_X
-    def fit_transform(self,X):
-        self.fit(X)
-        return self.transform(X) 
 
 class DataProcessor(PathConfig):
 
@@ -221,31 +208,20 @@ class DataProcessor(PathConfig):
 
         return X_minmax, y_minmax, X_filtered, y_filtered
 
-    def scale_data(self,data_pack,scaling):
-        '''
-        To use this function:
-        data_pack is supposed to contain one entire dataset and subsets of the entire dataset,
-        e.g., data_pack = [entire (X/y), minmax_values_pack, filtered_packs]
-        '''
-
-        # If the scaling is not norm, perform the scaling first prior to minmixscaling
-        scaled_data = []
+    @staticmethod
+    def apply_scaling(scaler, data_pack: list) -> list:
         
-        if scaling != 'norm':
-            # Select the scaler based on user choice
-            if scaling == 'log':
-                scaler = LogScaler(base=10)
-            elif scaling == 'robust':
-                scaler = RobustScaler(with_centering=False, with_scaling=True, quantile_range=(25.0,75.0))
-            elif scaling == 'power':
-                scaler = PowerTransformer()
-            elif scaling == 'quantile':
-                scaler = QuantileTransformer(output_distribution='normal')
+        scaled_data = []
+        # laying out the input datapacks to further update with their scaled values
+        scaled_datapacks = {idx: dataframe.copy() for idx,dataframe in enumerate(data_pack)}
 
-            # applying scaler to each datapack (full, minmax, filtered) if scaler != norm
-            for df in data_pack:
-                # Scale output features
-                for column in df.columns:
+        # scale each feature
+        for column in data_pack[0].columns:
+
+            # scale selected feature in each data-pack
+            for df_idx, df in enumerate(data_pack):
+                # get the scaler for the entire dataset
+                if df_idx == 0:
                     # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
                     if df[column].dtype == 'object':
                         flat_list = [ele_val for ele in df[column] for ele_val in ele]
@@ -257,45 +233,51 @@ class DataProcessor(PathConfig):
                     else:
                         df[column] = scaler.fit_transform(df[column].values.reshape(-1,1))
                         df[column] = df[column].values.reshape(-1,)
-                if len(data_pack) > 1:
-                    scaled_data.append(df)
+                
+                # We dont fit (only transform) datapacks 1,2 again to maintain consistency with the entire set scaling executed above
                 else:
-                    scaled_data = df
+                    if df[column].dtype == 'object':
+                        df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
+                        # reshaping back to a 1D list
+                        df[column] = df[column].apply(lambda x: x.reshape(-1,))
+                    else:
+                        df[column] = scaler.transform(df[column].values.reshape(-1,1))
+                        df[column] = df[column].values.reshape(-1,)
+
+                #append scaled feature to each corresponding datapack
+                scaled_datapacks[df_idx][column] = df[column].copy()
+
+        scaled_data = [scaled_datapacks[idx] for idx in range(len(scaled_datapacks))]
+
+        return scaled_data
+
+    def scale_data(self,data_pack: list, scaling: str) -> list:
+        '''
+        To use this function:
+        data_pack is supposed to contain one entire dataset and subsets of the entire dataset,
+        e.g., data_pack = [entire (X/y), minmax_values_pack, filtered_packs]
+        '''
+
+        scalers = {'log': LogScaler(base=10),
+                   'robust': RobustScaler(with_centering=False, with_scaling=True, quantile_range=(25.0,75.0)),
+                   'power': PowerTransformer(),
+                   'quantile': QuantileTransformer(output_distribution='normal')}
         
+        # If the scaling is not norm, perform the scaling first prior to minmixscaling
+        if scaling != 'norm':
+            # Select the scaler based on user choice
+            scaler = scalers.get(scaling)
+            scaled_data = self.apply_scaling(scaler, data_pack)
+
         # if the scaling is norm, skip all the scaling above
         else:
             scaled_data = data_pack
         
         # All scalings have to finish with a minmaxscaling
         norm_scaler = MinMaxScaler(feature_range=(-1,1))
-        # scale each feature
-        for column in scaled_data[0].columns:
-            for df_idx, scaled_df in enumerate(scaled_data):
-                # get the scaler for the entire dataset
-                if df_idx == 0:
-                    # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
-                    if scaled_df[column].dtype == 'object':
-                        flat_list = [ele_val for ele in scaled_df[column] for ele_val in ele]
-                        flat_arr = np.array(flat_list).reshape(-1,1)
-                        norm_scaler.fit(flat_arr)
-                        scaled_df[column] = scaled_df[column].apply(lambda x: norm_scaler.transform(x.reshape(-1,1)))            
-                        # reshaping back to a 1D list
-                        scaled_df[column] = scaled_df[column].apply(lambda x: x.reshape(-1,))
-                    else:
-                        scaled_df[column] = norm_scaler.fit_transform(scaled_df[column].values.reshape(-1,1))
-                        scaled_df[column] = scaled_df[column].values.reshape(-1,)
-                
-                # We dont fit (only transform) datapacks 1,2 again to maintain consistency with the entire set scaling executed above
-                else:
-                    if scaled_df[column].dtype == 'object':
-                        scaled_df[column] = scaled_df[column].apply(lambda x: norm_scaler.transform(x.reshape(-1,1)))            
-                        # reshaping back to a 1D list
-                        scaled_df[column] = scaled_df[column].apply(lambda x: x.reshape(-1,))
-                    else:
-                        scaled_df[column] = norm_scaler.transform(scaled_df[column].values.reshape(-1,1))
-                        scaled_df[column] = scaled_df[column].values.reshape(-1,)
-            
-        return scaled_data
+        mmscaled_data = self.apply_scaling(norm_scaler, scaled_data)
+ 
+        return mmscaled_data
     
     # Visualize data before and after scaling
     def plot_scaling(self, original_data, scaled_data,data_label):
@@ -481,8 +463,8 @@ def main():
     # recombine filtered minmax cases intro training data pack
     combine_choice = input('Include the filtered cases into training? (y/n):')
     if combine_choice.lower() == 'y':
-        X_train = pd.concat([X_train,X_minmax],axis=0)
-        y_train = pd.concat([y_train,y_minmax],axis=0)
+        X_train = pd.concat([X_train,X_scaled[1]],axis=0)
+        y_train = pd.concat([y_train,y_scaled[1]],axis=0)
 
     y_test_exp = pd.DataFrame()
     
