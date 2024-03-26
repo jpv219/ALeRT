@@ -6,15 +6,41 @@
 ##########################################################################
 
 import numpy as np
+import pandas as pd
 import configparser
 import os
 import shutil
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.experimental import enable_halving_search_cv
+from sklearn.model_selection import HalvingGridSearchCV
+from sklearn.model_selection import HalvingRandomSearchCV
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
+
+
+COLOR_MAP = cm.get_cmap('viridis', 30)
+plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ['Computer Modern']})
+
+SMALL_SIZE = 12
+MEDIUM_SIZE = 14
+BIGGER_SIZE = 15
+plt.rc('font', size=BIGGER_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=BIGGER_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=BIGGER_SIZE + 2)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=BIGGER_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=BIGGER_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=MEDIUM_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 ############################# PATH UTILITIES ##############################################
 class PathConfig:
@@ -42,7 +68,9 @@ class PathConfig:
     @property
     def model_savepath(self):
         return self._config['Path']['models']
-    
+
+############################ KFOLD CROSS VALIDATION ########################################
+
 class KFoldEarlyStopping:
 
     def __init__(self, metric, patience = 5, delta = 0.001, verbose = True):
@@ -51,8 +79,9 @@ class KFoldEarlyStopping:
             delta (float): Porcentual minimum change in the monitored metric to be considered an improvement.
                             Default: 0.001
         """
-        self.__counter = 0
-        self.__stop = False
+        # stopper attributes
+        self._counter = 0
+        self._stop = False
         self.verbose = verbose
         self.patience = patience
         self.delta = delta
@@ -61,20 +90,61 @@ class KFoldEarlyStopping:
         self.score = metric
 
         # tracking best model overall and each kfold run performance: containing score, k_iteration, model
-        self.__best_score = None 
-        self.__best_k = 0
-        self.__best_model = None
+        self._best_score = None 
+        self._best_k = 0
+        self._best_model = None
 
     @property
     def stop(self):
-        return self.__stop
+        return self._stop
     
+    @stop.setter
+    def stop(self, value):
+        if not isinstance(value, bool):
+            raise ValueError("Stop value must be a boolean.")
+        self._stop = value
+
+    @property
+    def counter(self):
+        return self._counter
+    
+    @counter.setter
+    def counter(self, value):
+        if value < 0:
+            raise ValueError("Counter value cannot be negative.")
+        self._counter = value
+
+    @property
+    def best_score(self):
+        return self._best_score
+    
+    @best_score.setter
+    def best_score(self,value):
+        self._best_score = value
+
+    @property
+    def best_model(self):
+        return self._best_model
+    
+    @best_model.setter
+    def best_model(self,value):
+        self._best_model = value
+
+    @property
+    def best_k(self):
+        return self._best_k
+    
+    @best_k.setter
+    def best_k(self,value):
+        self._best_k = value
+
     def print_verbose(self, message):
         if self.verbose:
             print(message)
 
+    # getter for best pack
     def get_best_fold(self) -> list:
-        return [self.__best_score, self.__best_k, self.__best_model]
+        return [self.best_score, self.best_k, self.best_model]
 
     # Call early stopping algorithm
     def __call__(self, current: list, mode = 'min'):
@@ -87,18 +157,18 @@ class KFoldEarlyStopping:
         # if no improvement exists, start counting towards the early stop
         if not has_updated:
 
-            self.__counter += 1
+            self.counter += 1
 
-            self.print_verbose(f'Early stopping counter: {self.__counter} out of {self.patience}')
+            self.print_verbose(f'Early stopping counter: {self.counter} out of {self.patience}')
 
         # Reset early stopping counter if an improvement exists: current = best
         else:
-            self.__counter = 0
+            self.counter = 0
 
         # If counter reaches patience, send stop signal
-        if self.__counter >= self.patience:
+        if self.counter >= self.patience:
 
-            self.__stop = True
+            self.stop = True
 
             self.print_verbose('-'*72)
             self.print_verbose(f'Stopping kfold sensitivity early stopping at fold {current_k}')
@@ -112,44 +182,60 @@ class KFoldEarlyStopping:
         if mode not in ['max', 'min']:
             raise ValueError('Unsupported update mode. Supported modes: "min", "max"')
         
+        # Extract current values from kfold run instance
         current_results, current_k, current_model = current
         current_score = current_results[self.score]['mean']
 
-        previous_best = self.__best_score
+        previous_best = self.best_score
         
         # Update best attributes if they are none or if an improvement is seen by a porcentual delta
-        if self.__best_score is None or \
-           (mode == 'min' and current_score < self.__best_score - self.delta*self.__best_score) or \
-           (mode == 'max' and current_score > self.__best_score + self.delta*self.__best_score):
+        if self.best_score is None or \
+           (mode == 'min' and current_score < self.best_score - self.delta*self.best_score) or \
+           (mode == 'max' and current_score > self.best_score + self.delta*self.best_score):
             
-            self.__best_score = current_score
-            self.__best_k = current_k
-            self.__best_model = current_model
+            self.best_score = current_score
+            self.best_k = current_k
+            self.best_model = current_model
             has_updated = True
 
-            self.print_verbose(f'Best scores updated at fold {current_k}: {self.score} now at {self.__best_score} from {previous_best}')
+            self.print_verbose(f'Best scores updated at fold {current_k}: {self.score} now at {self.best_score} from {previous_best}')
         
         return has_updated
                 
 class KFoldCrossValidator(PathConfig):
 
+    model_abbr_map = {'Decision_Tree':'dt', 
+                    'XGBoost':'xgb', 
+                    'Random_Forest': 'rf',
+                    'Support_Vector_Machine': 'rf',
+                    'K_Nearest_Neighbours': 'knn',
+                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'Multi_Layer_Perceptron': 'mlp'}
+    
     def __init__(self, model, name: str, native: str, k_sens = True, verbose = True):
 
         super().__init__()
-
-        self.model = model
+        
         self.model_name = name
+        self.model_abbr = KFoldCrossValidator.model_abbr_map.get(name)
+        
+        self.model = model
         self.k_sens = k_sens
         self.verbose = verbose
         self.native = native
+
+        self.chk_dir = os.path.join(self.model_savepath, self.model_name)
+
+        self.bestmodel_path = ''
     
     def __call__(self, *args: Union[np.any, str], **kwargs: Union[np.any, str]) -> dict:
                
+        # Training data sets
         X, y = args[0], args[1]
 
         # Optional kwargs depending on kfoldcv call
         cv_type = kwargs.get('cv_type')
-        n_repeats = kwargs.get('n_repeats', 5)
+        n_repeats = kwargs.get('n_repeats', 3)
         es_score = kwargs.get('earlystop_score', 'mse')
 
         # If cv_type is 'repeated', specify the number of repeats
@@ -186,14 +272,13 @@ class KFoldCrossValidator(PathConfig):
 
             kf_cv_summary = self.kfold_cv(X,y,cv_class,cv_wrapper,k)
 
-        return kf_cv_summary 
+        return kf_cv_summary, self.bestmodel_path
 
     # one pass kfold crossvalidation
     def kfold_cv(self,X,y,cv_class,cv_wrapper, k) -> dict:
         
         # Checkpoint path
-        chk_dir = os.path.join(self.model_savepath, self.model_name)
-        self.clean_dir(chk_dir)
+        self.clean_dir(self.chk_dir)
         
         #Cross validation set splitter
         cv = cv_class(n_splits = k)
@@ -209,13 +294,10 @@ class KFoldCrossValidator(PathConfig):
             kf_cv_summary[metric] = kfold_results[metric]['mean']
         
         # Save best model obtained
-        if self.native == 'sk_native':
-            joblib.dump(self.model,os.path.join(chk_dir, f'{self.model_name}_{k}_fold_cv.pkl'))
-        elif self.native == 'mlp':
-            self.model.save(os.path.join(chk_dir, f'{self.model_name}_{k}_fold_cv.keras'))
+        self.save_model(self.model,k)
 
         # Save metrics log for all kfold runs carried out
-        with open(os.path.join(chk_dir, f'{self.model_name}_kfold_cv_scores.txt'), 'w') as file :
+        with open(os.path.join(self.chk_dir, f'{self.model_abbr}_kfold_cv_scores.txt'), 'w') as file :
             file.write(f'Results for cv run with k={k}:' + '\n')
             file.write('-'*72 + '\n')
             for metric in kfold_results.keys():
@@ -228,8 +310,7 @@ class KFoldCrossValidator(PathConfig):
     def ksens_loop(self, X, y, cv_class, cv_wrapper, early_stopper, min_k, max_k) -> dict:
         
         # Checkpoint path
-        chk_dir = os.path.join(self.model_savepath, self.model_name)
-        self.clean_dir(chk_dir)
+        self.clean_dir(self.chk_dir)
         
         # number of kfolds to try as hyperparameter for the cross validation sensitivity
         folds = range(min_k,max_k+1)
@@ -260,6 +341,7 @@ class KFoldCrossValidator(PathConfig):
             if early_stopper.stop: 
                 break
 
+        # get best pack from early stopper
         _, best_fold_idx, best_model = early_stopper.get_best_fold()
 
         # Drop all future kfolds after algorithm has decided to early stop at a best kfold
@@ -267,14 +349,11 @@ class KFoldCrossValidator(PathConfig):
         for key in folds_to_drop:
             del cv_results[key]
         
-        # Save best model obtained
-        if self.native == 'sk_native':
-            joblib.dump(best_model,os.path.join(chk_dir, f'{self.model_name}_best_model_{best_fold_idx}_folds.pkl'))
-        elif self.native == 'mlp':
-            best_model.save(os.path.join(chk_dir, f'{self.model_name}_best_model_{best_fold_idx}_folds.keras'))
-        
+        # save best model
+        self.save_model(best_model,best_fold_idx)
+
         # Save metrics log for all kfold runs carried out
-        with open(os.path.join(chk_dir, f'{self.model_name}_ksens_cv_scores.txt'), 'w') as file :
+        with open(os.path.join(self.chk_dir, f'{self.model_abbr}_ksens_cv_scores.txt'), 'w') as file :
             for k, fold_run in enumerate(cv_results.keys()):
                 file.write(f'Results for cv run with k={k+min_k}: {cv_results[fold_run]}' + '\n')
                 file.write('-'*72 + '\n')
@@ -294,10 +373,11 @@ class KFoldCrossValidator(PathConfig):
 
         rename_keys = {'estimator':'estimator', 'fit_time': 'fit_time','score_time':'score_time',
                        'test_r2': 'r2', 'test_neg_mean_absolute_error': 'mae',
-                       'test_neg_mean_squared_error': 'mse', 'test_explained_variance': 'variance'}
+                       'test_neg_mean_squared_error': 'mse', 'test_explained_variance': 'variance',
+                       'test_neg_root_mean_squared_error':'rmse'}
         
         # Extract detailed scores and performance per model
-        score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error']
+        score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
         
         sk_scores = cross_validate(self.model, X, y, scoring=score_metrics,cv=cv, n_jobs=5, verbose=0, return_estimator=True) #number of folds X number of repeats
 
@@ -414,6 +494,20 @@ class KFoldCrossValidator(PathConfig):
 
         return kfold_results
     
+    def save_model(self,best_model,k_idx):
+
+        # Save best model obtained
+        if self.native == 'sk_native':
+            chk_path = os.path.join(self.chk_dir, f'{self.model_abbr}_best_{k_idx}_fold.pkl')
+            joblib.dump(best_model,chk_path)
+
+        elif self.native == 'mlp':
+            chk_path = os.path.join(self.chk_dir, f'{self.model_abbr}_best_{k_idx}_fold.keras')
+            best_model.save(chk_path)
+        
+        # update best model path
+        self.bestmodel_path = chk_path
+
     def print_verbose(self, message):
         if self.verbose:
             print(message)
@@ -434,3 +528,299 @@ class KFoldCrossValidator(PathConfig):
                     shutil.rmtree(file_path)  # Remove directory and its contents
                 else:
                     os.remove(file_path)
+
+############################ HYPERPARAMETER TUNING ########################################
+
+class HyperParamTuning(PathConfig):
+
+    ## SEARCH SPACES ##
+    regressor_hp_search_space = {'dt': {'criterion': ['squared_error', 'friedman_mse', 'absolute_error'],
+                'max_depth': [2, 4, 6, 8, 10],
+                'min_samples_split': [2, 4, 6, 8, 10],
+                'min_samples_leaf': [1, 2, 4, 6],
+                'min_impurity_decrease': [0.0, 0.1, 0.2, 0.3],
+                'max_leaf_nodes': [None, 2, 5],
+                'splitter' : ['best','random']}, 
+        'xgb': {'max_depth': [1,3,6,9,12], 'n_estimators': [100,150,200],
+                'learning_rate': [0.01,0.05,0.1,0.3], 'min_child_weight': [1,3,5,7,9],
+                'subsample': [0.5,0.7, 1], 'colsample_bytree': [0.5, 0.7, 1.0],
+                'gamma': [0, 0.01, 0.05], 'lambda' : [0.001, 0.01, 0.05],
+                'alpha': [0.05, 0.1, 0.5]}, 
+        'rf': {'n_estimators': 100},
+        'svm': {'C': 1, 'epsilon': 0.1},
+        'knn': {'n_neighbours': 10},
+        'mlp_reg': {'n_dense' : 2,
+                'n_shallow': 2,
+                'n_nodes_d': 128,
+                'n_nodes_s': 64,
+                'n_epochs' : 100,
+                'batch_size' : 1,
+                'act_fn': 'relu'},
+        'mlp': {'n_dense' : 2,
+                'n_shallow': 2,
+                'n_nodes_d': 128,
+                'n_nodes_s': 64,
+                'n_epochs' : 100,
+                'batch_size' : 1,
+                'act_fn': 'relu'}
+
+    }
+
+    key_regressor_params = {'dt': ['max_depth','min_samples_split'],
+                            'xgb': ['max_depth', 'min_child_weight', 'learning_rate']}
+
+    model_abbr_map = {'Decision_Tree':'dt', 
+                    'XGBoost':'xgb', 
+                    'Random_Forest': 'rf',
+                    'Support_Vector_Machine': 'rf',
+                    'K_Nearest_Neighbours': 'knn',
+                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'Multi_Layer_Perceptron': 'mlp'}
+    
+    rename_keys = {
+            'r2': 'r2',
+            'mae': 'neg_mean_absolute_error',
+            'mse': 'neg_mean_squared_error',
+            'variance': 'explained_variance',
+            'rmse': 'neg_root_mean_squared_error'
+        }
+    
+    
+    def __init__(self, model, name, native, verbose = False):
+
+        super().__init__()
+        
+        self.model_name = name
+        self.model_abbr = HyperParamTuning.model_abbr_map.get(name, None)
+        self.native = native
+        self.verbose = verbose
+
+        self.model = model
+
+        if self.model_abbr is None:
+            raise NotImplementedError('Model not supported for Hyperparameter tuning')
+    
+    def __call__(self, *args: Union[np.any, str], **kwargs: str) :
+        
+        # Training data sets
+        X, y = args[0], args[1]
+
+        # Optional kwargs depending on tuning cv call
+        tuning_type = kwargs.get('tuning_type')
+        input_score = kwargs.get('fit_score', 'mse')
+        n_iter  = kwargs.get('n_iter',None)
+
+        # get sklearn appropaite identifier for fit score
+        fit_score = HyperParamTuning.rename_keys.get(input_score)
+        # get hyperparameter searcher
+        param_grid = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+
+        # create/clean saving tune directory
+        tune_save_dir = os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
+        self.clean_dir(tune_save_dir)
+
+        self.print_verbose('-'*72)
+        self.print_verbose(f'Running hyperparameter tuning for {self.model_name} with tuner: {tuning_type}')
+        self.print_verbose('-'*72)
+
+        # mode whether going for sknative or MLP hyperparameter tune function
+        if self.native == 'sk_native':
+            tuned_model = self.sk_native_tuner(X, y, tuning_type, param_grid, fit_score, n_iter)
+
+        elif self.native == 'mlp':
+            tuned_model = self.mlp_hp_tuner(X, y, param_grid)
+
+        # Get best parameters and best estimator
+        best_params = tuned_model.best_params_
+        best_estimator = tuned_model.best_estimator_
+        best_score = tuned_model.best_score_
+        results_df = pd.DataFrame(tuned_model.cv_results_)
+
+        # extract score column to rank best trials executed during search
+        rank_column = next((col for col in results_df.columns if col == 'rank_test_' + fit_score), 
+                   next((col for col in results_df.columns if col.startswith('rank_test_')), None))
+        sorted_results = results_df.sort_values(by=rank_column, ascending= True)
+
+        # save best performing model and parameter detail to a txt file
+        with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
+            file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
+            
+            for column in sorted_results.columns:
+                #write only top 5 cases from sorted dataframe
+                for i in range(len(sorted_results[:5])):
+                    file.write(f'{column} for case # {i}: {sorted_results[column].iloc[i]}' + '\n')
+                file.write('-'*72 + '\n')
+
+            file.write('Best Parameters overall:' + '\n')
+            file.write('-'*72 + '\n')
+            file.write(f'{best_params}')
+
+        self.print_verbose('-'*72)
+        self.print_verbose(f'Best Parameters: {best_params}')
+        self.print_verbose(f'Best Score at Tuning: {-best_score}')
+        self.print_verbose('-'*72)
+
+        return best_estimator
+
+    def sk_native_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, n_iter = 1000):
+        
+        # Select type of hyperparameter tuning process to execute
+        tuners = {'std': GridSearchCV,
+                'random': RandomizedSearchCV,
+                'halving': HalvingGridSearchCV,
+                'halve_random': HalvingRandomSearchCV
+                }
+
+        hp_tuner = tuners.get(tuning_type, None)
+
+        if hp_tuner is None:
+            raise NotImplementedError(f'hyperparam searching method specified: {tuning_type} is not supported')
+        
+        # Extract detailed scores and performance per model
+        score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
+
+        # First tuning run on most influential parameters
+        key_params = HyperParamTuning.key_regressor_params.get(self.model_abbr) 
+        first_param_sweep = {key: param_grid[key] for key in key_params}
+
+        self.print_verbose('-'*72)
+        self.print_verbose(f'Starting first hyperparameter sweep for {self.model_name} with parameters: {key_params}')
+        self.print_verbose('-'*72)
+        
+        first_search = self.sk_run_tune(first_param_sweep, fit_score, score_metrics, tuner = tuners.get('std'))
+
+        # Fit model with hyperparam tuning search
+        first_tune = first_search.fit(X,y)
+
+        # Extract best parameters from first tune sweep
+        best_key_params = {param : [first_tune.best_params_[param]] for param in first_param_sweep.keys()}
+
+        self.print_verbose('-'*72)
+        self.print_verbose(f'Continuing final sweep for {self.model_name} with remaining parameters')
+        self.print_verbose('-'*72)
+
+        # Re-build sample space with key parameters as constants from initial sweep
+        full_param_sweep = {key: best_key_params[key] if key in best_key_params else value for key, value in param_grid.items()}
+
+        # Full tuning sweep with constant best parameters from first sweep
+        search = self.sk_run_tune(full_param_sweep, fit_score, score_metrics, hp_tuner, tuning_type, n_iter)
+
+        # Fit model with hyperparam tuning search
+        final_tune = search.fit(X,y)
+        
+        return final_tune
+    
+    def sk_run_tune(self, params: dict, fit_score: str, score_metrics: list, tuner, tuning_type = 'std', n_iter = 100):
+
+        if 'halv' in tuning_type:
+            search = tuner(self.model, params, scoring = fit_score, n_jobs = -1, cv = 3, verbose = 2)
+
+        elif tuning_type == 'random':
+            search = tuner(self.model, params, scoring = fit_score, n_iter = n_iter, n_jobs = -1, cv = 3, verbose = 2)
+
+        else:
+            search = tuner(self.model, params, scoring = score_metrics, n_jobs = -1, refit = fit_score, cv = 3, verbose = 2, error_score = 'raise')
+
+        return search
+    
+    def mlp_hp_tuner(self):
+        pass
+
+    def print_verbose(self, message):
+        if self.verbose:
+            print(message)
+
+    @staticmethod
+    def clean_dir(dir):
+        
+        # Create kfold run checkpoint folder
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+        # clean if previous files exist
+        else:
+            for filename in os.listdir(dir):
+                file_path = os.path.join(dir,filename)
+
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # Remove directory and its contents
+                else:
+                    os.remove(file_path)
+
+
+########################### MODEL EVALUATION ##############################################
+                    
+class ModelEvaluator(PathConfig):
+
+    def __init__(self, model, data_packs: list):
+        super().__init__()
+
+        self.model = model
+
+        # Reading data packs for model fit and eval
+        self.X_train_df, self.y_train_df, self.X_test_df, self.y_test_df = data_packs[:4]
+        
+        # Converting to numpy arrays for plotting and further processing
+        self.X_train = self.X_train_df.to_numpy()
+        self.y_train = self.y_train_df.to_numpy()
+        self.X_test = self.X_test_df.to_numpy()
+        self.y_test = self.y_test_df.to_numpy()
+
+
+    def predict(self,X):
+        y_pred = self.model.predict(X)
+        return y_pred
+
+    def plot_dispersion(self):
+
+        y_pred_test = self.predict(self.X_test)
+        y_pred_train = self.predict(self.X_train)
+
+        x = np.linspace(np.min(y_pred_train),np.max(y_pred_train),100)
+        y = x
+        pos_dev = -1 +1.2*(x+1)
+        neg_dev = -1 +0.8*(x+1)
+
+        fig ,axes = plt.subplots(2, figsize=(8,6), sharex=True, sharey=True)
+
+        for ax in axes:
+            ax.plot(x,y,label = 'x=y', color = 'k', linewidth = 2.5)
+            ax.plot(x,pos_dev, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')
+            ax.plot(x,neg_dev, label = '-20%', color = 'r', linewidth = 1.5, linestyle = '--')
+            ax.set_xlabel('True Data')
+            ax.set_ylabel('Predicted Data')
+            ax.legend()
+
+        axes[0].scatter(self.y_train, y_pred_train, edgecolor='k', c= self.y_train, cmap=COLOR_MAP)
+        axes[0].set_title('Training data dispersion plot')
+        axes[1].scatter(self.y_test, y_pred_test, edgecolor='k', c= self.y_test, cmap=COLOR_MAP)
+        axes[1].set_title('Testing data dispersion plot')
+        
+        plt.tight_layout()
+        plt.show()
+    
+    def plot_r2_hist(self, num_bins = 10):
+
+        y_pred = self.predict(self.X_test)
+        
+        r2 = r2_score(self.y_test, y_pred)
+
+        plt.figure(figsize=(8,6))
+        plt.hist(r2, num_bins, edgecolor = 'black')
+        plt.xlabel('R2_Score')
+        plt.ylabel('Frequency')
+        plt.title('R2 histogram')
+        plt.show()
+
+    def display_metrics(self):
+
+        y_pred = self.predict(self.X_test)
+
+        r2 = r2_score(self.y_test, y_pred)
+        mse = mean_squared_error(self.y_test, y_pred)
+        mae = mean_absolute_error(self.y_test, y_pred)
+
+        print('R2 Score: ', r2)
+        print('Mean Squared Error: ', mse)
+        print('Mean Absolute Error: ', mae)
+
