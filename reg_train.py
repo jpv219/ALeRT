@@ -76,9 +76,58 @@ class Regressor(ABC,PathConfig):
         model.fit(X_train,y_train)
 
         return model
+    
+    @staticmethod
+    def load_model(model_dir: str, is_mlp: bool):
+        """
+    Load the model based on whether it's an MLP model or not.
+
+    Parameters:
+    - model_dir (str): Directory where the model is stored.
+    - is_mlp (bool): Flag indicating whether the model is an MLP model or not.
+
+    Returns:
+    - Loaded model object.
+    """
+        if is_mlp:
+            return tf.keras.models.load_model(model_dir)
+        else:
+            return joblib.load(model_dir)
+    
+    @staticmethod
+    def get_cvargs(cv: str, score: str) -> dict:
+        """
+    Get arguments for cross-validator instance (kfolder or tuning).
+
+    Parameters:
+    - es_score (str): The earlystop score, for kfold instances.
+
+    Returns:
+    - Dictionary with cross-validation arguments.
+    """
+        args = {'kfold_early': {'cv_type': 'kfold',
+                        'n_repeats': 3,
+                        'min_k': 3,
+                        'max_k':50,
+                        'k': 5,
+                        'earlystop_score': score},
+                'hp_tuning': {'tuning_type': 'std',
+                           'n_iter': 30,
+                           'fit_score': score},
+                'kfold_final': {'cv_type': 'kfold',
+                        'n_repeats': 3,
+                        'min_k': 3,
+                        'max_k':50,
+                        'k': 5,
+                        'earlystop_score': score}}
+        
+        if cv not in args:
+            raise TypeError(f'cross-validator specified {cv} does not match existing argument dictionaries')
+        
+        return args.get(cv)
         
     # Model train main pipeline: kfold + gridsearch + kfold
-    def model_train(self, data_packs: list, model, cv_choices: dict, model_name: str):
+    def model_train(self, data_packs: list, model, cv_options: dict, model_name: str):
 
         """
     Trains a regressor using K-fold cross-validation
@@ -131,56 +180,66 @@ class Regressor(ABC,PathConfig):
         y_train_arr = y_train.to_numpy()
 
         # Kfold user inputs
-        skip_kfold = cv_choices.get('skip_kfold')
-        k_sens = cv_choices.get('ksens')
-        skip_hp_tune = cv_choices.get('hp_tune')
+        skip_kfold = cv_options.get('skip_kfold')
+        k_sens = cv_options.get('ksens')
+        skip_hp_tune = cv_options.get('hp_tune')
 
         # select features and args based on regressor type used
-        if isinstance(self,MLP):
-            native = 'mlp'
-            es_score = 'loss'
-            
-        else:
-            native = 'sk_native'
-            es_score = 'mse'
+        native = 'mlp' if isinstance(self, MLP) else 'sk_native'
+        es_score = 'loss' if isinstance(self, MLP) else 'mse'
 
         # skip or not early kfold
         if not skip_kfold:
 
-            # cross validator arguments
-            cv_args = {'cv_type': 'kfold',
-                        'n_repeats': 3,
-                        'min_k': 3,
-                        'max_k':50,
-                        'k': 5,
-                        'earlystop_score': es_score}
+            # kfold cross validator arguments
+            cv_args = self.get_cvargs('kfold_early', es_score)
             
             # crossvalidator instance
             cross_validate = KFoldCrossValidator(model, model_name, native, k_sens = k_sens)
 
             cv_scores, model_dir = cross_validate(X_train_arr,y_train_arr, **cv_args)
 
+            print(f'Summary scores from early {cv_args["cv_type"]} cross validation')
+            print('-'*72)
             print(cv_scores)
 
-            # select arguments based on regressor type used
-            if isinstance(self,MLP):
-                model = tf.keras.models.load_model(model_dir)
-                
-            else:
-                model = joblib.load(model_dir)
+            # Load cross validated model for further handling
+            model = self.load_model(model_dir, isinstance(self,MLP))
         
         # skip or not hyperparam tuning
         if not skip_hp_tune:
         
             hyperparam_tuning = HyperParamTuning(model,model_name, native, verbose= True)
 
+            # tuning arguments
+            hptune_args = self.get_cvargs('hp_tuning', score='mse')
+
             # calling hyperparam tuning. if random selected
-            tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, tuning_type = 'std', n_iter = 30, 
-                                            fit_score = 'mse')
+            tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, **hptune_args)
+            
+            # Carry out further kfold with or w/o k sensitivity on tuned model
+            further_kfold = input('Perform further kfold cross-validation (with sensitivity)? (y/ys/n): ')
+            if 'y' in further_kfold.lower() :
+
+                k_cv = {'ys': True, 'y': False}
+                fcv_args = self.get_cvargs('kfold_final', es_score)
+
+                further_kcv = KFoldCrossValidator(tuned_model, model_name, native, k_sens=k_cv.get(further_kfold.lower()))
+
+                tuned_scores, tuned_model_dir = further_kcv(X_train_arr, y_train_arr, **fcv_args)
+
+                print(f'Summary scores from {fcv_args["cv_type"]} cross validation after tuning')
+                print('-'*72)
+                print(tuned_scores)
+
+                # load tuned and cross validated model to be returned
+                tuned_model = self.load_model(tuned_model_dir,isinstance(self,MLP))
         
+        # if hp tune was skipped but early kfold was run, return kfold model
         elif not skip_kfold and skip_hp_tune:
             return model
         
+        # simply train the model
         else:
             tuned_model = self.fit_model(X_train_arr,y_train_arr,model)
 
@@ -189,6 +248,10 @@ class Regressor(ABC,PathConfig):
     def model_evaluate(self,tuned_model,data_packs):
             
         model_eval = ModelEvaluator(tuned_model, data_packs)
+
+        print('-'*72)
+        print('Evaluating final model performance')
+        print('-'*72)
 
         model_eval.plot_dispersion()
         model_eval.plot_r2_hist()
@@ -508,16 +571,16 @@ def main():
     skip_kfold = input('Skip pre-Kfold cross validation? (y/n): ')
     
     # Decide whether to do pre-kfold and include k sensitivity
-    if skip_kfold == 'n':
+    if skip_kfold.lower() == 'n':
         ksens = input('Include K-sensitivity? (y/n): ')
     else:
         ksens = 'n'
     
     skip_hp_tune = input('Skip hyperparameter tuning cross-validation? (y/n): ')
 
-    cv_choices = {'skip_kfold': True if skip_kfold == 'y' else False,
-          'ksens' : True if ksens == 'y' else False,
-          'hp_tune': True if skip_hp_tune == 'y' else False}
+    cv_options = {'skip_kfold': True if skip_kfold.lower() == 'y' else False,
+          'ksens' : True if ksens.lower() == 'y' else False,
+          'hp_tune': True if skip_hp_tune.lower() == 'y' else False}
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
@@ -527,7 +590,7 @@ def main():
 
     # Regression training and evaluation
     tuned_model = model_instance.model_train(data_packs, model, 
-                                        cv_choices, model_name)
+                                        cv_options, model_name)
     # Calling model evaluate with tuned model
     model_instance.model_evaluate(tuned_model, data_packs)
 

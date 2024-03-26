@@ -648,7 +648,7 @@ class HyperParamTuning(PathConfig):
             for column in sorted_results.columns:
                 #write only top 5 cases from sorted dataframe
                 for i in range(len(sorted_results[:5])):
-                    file.write(f'{column} for case # {i}: {sorted_results[column][i]}' + '\n')
+                    file.write(f'{column} for case # {i}: {sorted_results[column].iloc[i]}' + '\n')
                 file.write('-'*72 + '\n')
 
             file.write('Best Parameters overall:' + '\n')
