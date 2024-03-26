@@ -1,6 +1,6 @@
 ##########################################################################
 #### Raw CSV data processing and PCA dimensionality reduction
-#### Author : Juan Pablo Valdes
+#### Author : Juan Pablo Valdes and Fuyue Liang
 ### First commit: Feb 2024
 ### Department of Chemical Engineering, Imperial College London
 ##########################################################################
