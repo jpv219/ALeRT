@@ -473,7 +473,7 @@ def main():
     # Load data to process
     path = PathConfig()
 
-    case = 'sp_geom'
+    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
     label_package = []
     data_packs = []
 
