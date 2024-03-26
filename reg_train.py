@@ -81,53 +81,53 @@ class Regressor(ABC,PathConfig):
         X_test_arr = X_test.to_numpy()
         y_test_arr = y_test.to_numpy()
 
-        # Carry out Kfold ceoss validation on training sets with or without sensitivity study
-        if ksens.lower() == 'y':
-            k_sens = True
-        else:
-            k_sens = False
-            
-        if isinstance(self,MLP):
-            native = 'mlp'
-            es_score = 'loss'
-            
-        else:
-            native = 'sk_native'
-            es_score = 'mse'
-
-        cv_args = {'cv_type': 'kfold',
-                    'n_repeats': 1,
-                    'min_k': 3,
-                    'max_k':50,
-                    'k': 8,
-                    'earlystop_score': es_score}
-        
-        cross_validate = KFoldCrossValidator(model, model_name, native, k_sens = k_sens)
-
-        scores = cross_validate(X_train_arr,y_train_arr, **cv_args)
-
-        # if isinstance(self,MLP):
-        
-        #     # Add MLP specific hyperparameters
-        #     epochs = self.kwargs.get('n_epochs', 1)
-        #     batch_size = self.kwargs.get('batch_size', 1)
-            
-        #     # Call model fit function
-        #     tr_model = self.fit_model(X_train_arr,y_train_arr,model)
-
+        # # Carry out Kfold ceoss validation on training sets with or without sensitivity study
+        # if ksens.lower() == 'y':
+        #     k_sens = True
         # else:
+        #     k_sens = False
+            
+        # if isinstance(self,MLP):
+        #     native = 'mlp'
+        #     es_score = 'loss'
+            
+        # else:
+        #     native = 'sk_native'
+        #     es_score = 'mse'
 
-        #     # Call model fit function
-        #     tr_model = self.fit_model(X_train_arr,y_train_arr,model)
+        # cv_args = {'cv_type': 'kfold',
+        #             'n_repeats': 1,
+        #             'min_k': 3,
+        #             'max_k':50,
+        #             'k': 2,
+        #             'earlystop_score': es_score}
+        
+        # cross_validate = KFoldCrossValidator(model, model_name, native, k_sens = k_sens)
 
-        # # Carry out predictions and evaluate model performance
-        # y_pred = tr_model.predict(X_test_arr)
+        # scores = cross_validate(X_train_arr,y_train_arr, **cv_args)
 
-        # r2 = r2_score(y_test_arr,y_pred)
-        # mae = mean_absolute_error(y_test_arr,y_pred)
-        # mse = mean_squared_error(y_test_arr,y_pred)
+        if isinstance(self,MLP):
+        
+            # Add MLP specific hyperparameters
+            epochs = self.kwargs.get('n_epochs', 1)
+            batch_size = self.kwargs.get('batch_size', 1)
+            
+            # Call model fit function
+            tr_model = self.fit_model(X_train_arr,y_train_arr,model)
 
-        # scores = [r2,mae,mse]
+        else:
+
+            # Call model fit function
+            tr_model = self.fit_model(X_train_arr,y_train_arr,model)
+
+        # Carry out predictions and evaluate model performance
+        y_pred = tr_model.predict(X_test_arr)
+
+        r2 = r2_score(y_test_arr,y_pred)
+        mae = mean_absolute_error(y_test_arr,y_pred)
+        mse = mean_squared_error(y_test_arr,y_pred)
+
+        scores = [r2,mae,mse]
 
         return scores
 
@@ -333,7 +333,7 @@ def main():
     # Load data to process
     path = PathConfig()
 
-    case = 'sp_geom'
+    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
     label_package = []
     data_packs = []
 

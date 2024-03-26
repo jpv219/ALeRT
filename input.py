@@ -11,7 +11,7 @@ import ast
 import os
 import pickle
 import configparser
-from sklearn.preprocessing import MinMaxScaler,RobustScaler
+from sklearn.preprocessing import MinMaxScaler,RobustScaler,PowerTransformer,QuantileTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
@@ -125,7 +125,9 @@ class LogScaler:
         # No operation needed during fitting
         return self
     def transform(self,X):
-        return np.log(X) / self.log_base
+        # use the log modulus transformation: preserves zero and the function acts like the log (base 10) function when non-zero
+        log_modulus_X = np.sign(X) * np.log(np.abs(X)+1) / self.log_base
+        return log_modulus_X
     def fit_transform(self,X):
         self.fit(X)
         return self.transform(X) 
@@ -171,7 +173,6 @@ class DataProcessor(PathConfig):
         
         return indices_in_df
 
-    
     def filter_minmax(self, data_pack,bottom=0.0,upper=0.0):
         '''
         Separate the cases with min and max feature values;
@@ -196,38 +197,113 @@ class DataProcessor(PathConfig):
         return X_minmax, y_minmax, X_filtered, y_filtered
 
     def scale_data(self,data_pack,scaling):
+        '''
+        To use this function:
+        data_pack is supposed to contain one entire dataset and some subsets of the entire dataset,
+        e.g., data_pack = [entire, subset1, subset2, subset3]
+        '''
 
+        # If the scaling is not norm, perform the scaling first prior to minmixscaling
         scaled_data = []
-        # scaler = MinMaxScaler(feature_range=(-1,1))
-        # Create a Scaler for scaling later
-        if scaling == 'norm':
-            scaler = MinMaxScaler(feature_range=(-1,1))
-        elif scaling == 'log':
-            scaler = LogScaler(base=10)
-        elif scaling == 'robust':
-            scaler = RobustScaler(with_centering=False, with_scaling=True, quantile_range=(25.0,75.0))
+        
+        if scaling != 'norm':
+            # Select the scaler based on user choice
+            if scaling == 'log':
+                scaler = LogScaler(base=10)
+            elif scaling == 'robust':
+                scaler = RobustScaler(with_centering=False, with_scaling=True, quantile_range=(25.0,75.0))
+            elif scaling == 'power':
+                scaler = PowerTransformer()
+            elif scaling == 'quantile':
+                scaler = QuantileTransformer(output_distribution='normal')
 
-        for df in data_pack:
-
-            # Scale output features
-            for column in df.columns:
-
-                # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
-                if df[column].dtype == 'object':
-                    flat_list = [ele_val for ele in df[column] for ele_val in ele]
-                    flat_arr = np.array(flat_list).reshape(-1,1)
-                    scaler.fit(flat_arr)
-                    df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
-                    # reshaping back to a 1D list
-                    df[column] = df[column].apply(lambda x: x.reshape(-1,))
+            for df in data_pack:
+                # Scale output features
+                for column in df.columns:
+                    # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
+                    if df[column].dtype == 'object':
+                        flat_list = [ele_val for ele in df[column] for ele_val in ele]
+                        flat_arr = np.array(flat_list).reshape(-1,1)
+                        scaler.fit(flat_arr)
+                        df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
+                        # reshaping back to a 1D list
+                        df[column] = df[column].apply(lambda x: x.reshape(-1,))
+                    else:
+                        df[column] = scaler.fit_transform(df[column].values.reshape(-1,1))
+                        df[column] = df[column].values.reshape(-1,)
+                if len(data_pack) > 1:
+                    scaled_data.append(df)
                 else:
-                    df[column] = scaler.fit_transform(df[column].values.reshape(-1,1))
-                    df[column] = df[column].values.reshape(-1,)
+                    scaled_data = df
+        
+        # if the scaling is norm, skip all the scaling above
+        else:
+            scaled_data = data_pack
+        
+        # All scalings have to finish with a minmaxscaling
+        norm_scaler = MinMaxScaler(feature_range=(-1,1))
+        # scale each feature
+        for column in scaled_data[0].columns:
+            for df_idx, scaled_df in enumerate(scaled_data):
+                # get the scaler based on the entire dataset
+                if df_idx == 0:
+                    # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
+                    if scaled_df[column].dtype == 'object':
+                        flat_list = [ele_val for ele in scaled_df[column] for ele_val in ele]
+                        flat_arr = np.array(flat_list).reshape(-1,1)
+                        norm_scaler.fit(flat_arr)
+                        scaled_df[column] = scaled_df[column].apply(lambda x: norm_scaler.transform(x.reshape(-1,1)))            
+                        # reshaping back to a 1D list
+                        scaled_df[column] = scaled_df[column].apply(lambda x: x.reshape(-1,))
+                    else:
+                        norm_scaler.fit(scaled_df[column].values.reshape(-1,1))
+                        scaled_df[column] = norm_scaler.transform(scaled_df[column].values.reshape(-1,1))
+                        scaled_df[column] = scaled_df[column].values.reshape(-1,)
+                
+                else:
+                    if scaled_df[column].dtype == 'object':
+                        scaled_df[column] = scaled_df[column].apply(lambda x: norm_scaler.transform(x.reshape(-1,1)))            
+                        # reshaping back to a 1D list
+                        scaled_df[column] = scaled_df[column].apply(lambda x: x.reshape(-1,))
+                    else:
+                        scaled_df[column] = norm_scaler.transform(scaled_df[column].values.reshape(-1,1))
+                        scaled_df[column] = scaled_df[column].values.reshape(-1,)
+                
+            # if len(scaled_data) > 1:
+            #     normed_data.append(scaled_df)
+            # else:
+            #     normed_data = scaled_df
+
+        # # scaler = MinMaxScaler(feature_range=(-1,1))
+        # # Create a Scaler for scaling later
+        # if scaling == 'norm':
+        #     scaler = MinMaxScaler(feature_range=(-1,1))
+        # elif scaling == 'log':
+        #     scaler = LogScaler(base=10)
+        # # elif scaling == 'robust':
+        # #     scaler = RobustScaler(with_centering=False, with_scaling=True, quantile_range=(25.0,75.0))
+        
+        # for df in data_pack:
+
+        #     # Scale output features
+        #     for column in df.columns:
+
+        #         # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
+        #         if df[column].dtype == 'object':
+        #             flat_list = [ele_val for ele in df[column] for ele_val in ele]
+        #             flat_arr = np.array(flat_list).reshape(-1,1)
+        #             scaler.fit(flat_arr)
+        #             df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
+        #             # reshaping back to a 1D list
+        #             df[column] = df[column].apply(lambda x: x.reshape(-1,))
+        #         else:
+        #             df[column] = scaler.fit_transform(df[column].values.reshape(-1,1))
+        #             df[column] = df[column].values.reshape(-1,)
             
-            if len(data_pack) > 1:
-                scaled_data.append(df.copy())
-            else:
-                scaled_data = df.copy()
+        #     if len(data_pack) > 1:
+        #         scaled_data.append(df.copy())
+        #     else:
+        #         scaled_data = df.copy()
             
         return scaled_data
     
@@ -395,10 +471,10 @@ def main():
     X_minmax, y_minmax, X_filtered, y_filtered = dt_processor.filter_minmax([X_df,y_df],bottom=percentages[0],upper=percentages[1])
     
     #Scale input and output features
-    scale_choice = input('Select a scaling method (norm/log): ')
+    scale_choice = input('Select a scaling method (norm/log/robust/power/quantile): ')
 
-    X_scaled = dt_processor.scale_data([X_df.copy(),X_minmax,X_filtered],scaling=scale_choice)
-    y_scaled = dt_processor.scale_data([y_df.copy(),y_minmax,y_filtered],scaling=scale_choice)
+    X_scaled = dt_processor.scale_data([X_df.copy(),X_minmax.copy(),X_filtered],scaling=scale_choice)
+    y_scaled = dt_processor.scale_data([y_df.copy(),y_minmax.copy(),y_filtered],scaling=scale_choice)
 
     dt_processor.plot_scaling(X_df,X_scaled[-1],data_label='inputs')
     dt_processor.plot_scaling(y_df,y_scaled[-1],data_label='outputs')
