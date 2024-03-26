@@ -70,7 +70,8 @@ class Regressor(ABC,PathConfig):
         """Initialize the regression model."""
         pass
 
-    def fit_model(self,X_train,y_train,model):
+    @staticmethod
+    def fit_model(X_train,y_train,model):
 
         # Fit model from native sklearn wrapper and return trained model
         model.fit(X_train,y_train)
@@ -528,10 +529,15 @@ def main():
                 'min_impurity_decrease': 0,
                 'max_leaf_nodes': None,
                 'splitter': 'best'}, 
-        'xgb': {'max_depth': 5, 'n_estimators': 100, 'learning_rate': 0.1,
-                'min_child_weight': 1, 'subsample': 0.9,
-                'colsample_bytree': 0.8, 'gamma': 0.1,
-                'lambda': 0.01, 'alpha': 0.01}, 
+        'xgb': {'max_depth': 1, 
+                'n_estimators': 200, 
+                'learning_rate': 0.3,
+                'min_child_weight': 3, 
+                'subsample': 1,
+                'colsample_bytree': 1, 
+                'gamma': 0,
+                'lambda': 0.001, 
+                'alpha': 0.05}, 
         'rf': {'n_estimators': 100},
         'svm': {'C': 1, 'epsilon': 0.1},
         'knn': {'n_neighbours': 10},
