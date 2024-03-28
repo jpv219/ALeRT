@@ -31,8 +31,9 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
 
 import ray
-from ray import tune
+from ray import train, tune
 from ray.tune.schedulers import ASHAScheduler
+from ray.air.integrations.keras import ReportCheckpointCallback
 
 
 COLOR_MAP = cm.get_cmap('viridis', 30)
@@ -669,7 +670,7 @@ class HyperParamTuning(PathConfig):
             self.print_verbose('-'*72)
         
         elif self.native == 'mlp':
-            tuned_model = self.mlp_hp_tuner(X, y)
+            best_estimator = self.mlp_hp_tuner(X, y)
 
         return best_estimator
 
@@ -752,30 +753,34 @@ class HyperParamTuning(PathConfig):
         scheduler = ASHAScheduler(
         metric='val_loss',
         mode='min',
+        time_attr= "training_iteration",
         max_t= 50,
-        grace_period=20, # save period without early stopping
-        reduction_factor=2,
+        grace_period=20 # save period without early stopping
         )
 
-        ray.shutdown()
-        ray.init(num_cpus=num_cpus_to_allocate)
-        num_samples = 200
+        num_samples = 10
 
-        tuner = tune.run(
-                        partial(self.mlp_run_tune, X,y),
-                        config=search_space,
-                        num_samples=num_samples,
+        tuner = tune.Tuner(
+                        tune.with_resources(partial(self.mlp_run_tune, X,y), resources={'cpu':num_cpus_to_allocate,'gpu': 0}),
+                        tune_config= tune.TuneConfig(
+                        metric = 'val_loss',
+                        mode = 'min',
                         scheduler=scheduler,
-                        local_dir= os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
+                        num_samples=num_samples,),
+                        run_config= train.RunConfig(
+                            name= 'exp',
+                            stop = {'val_loss':1e-5},
+                        ),
+                        param_space= search_space,
                         )
+        results = tuner.fit()
         
-        best_trial = tuner.get_best_trial('val_loss', 'min', 'last')
+        best_trial = results.get_best_result()
 
         ray.shutdown()
 
-        print(f'Finished tuning hyperparameters with {num_samples} samples')
-        print(f'Best trial id: {best_trial.trial_id}')
-        print(f'Best trial config: {best_trial.config}')
+        print(f'Finished tuning with {num_samples} samples')
+        print(f'Best trial hyperparameters: {best_trial.config}')
 
         return best_trial
 
@@ -788,12 +793,12 @@ class HyperParamTuning(PathConfig):
 
         batch_size = config['batch_size']
         stopper = EarlyStopping(monitor='val_loss', patience=10)
+        checkpoint = ReportCheckpointCallback(metrics={'val_loss': 'loss'})
 
-        mlp.fit(X_train,y_train,validation_data = (X_val, y_val), batch_size = batch_size, epochs=50, verbose=1, callbacks = [stopper])
+        mlp.fit(X_train,y_train,validation_data = (X_val, y_val), 
+                batch_size = batch_size, epochs=50, verbose=1, 
+                callbacks = [stopper,checkpoint])
 
-        val_loss = mlp.evaluate(X_val,y_val)
-
-        return {"val_loss": val_loss}
 
     @staticmethod
     def build_net(**kwargs):
@@ -829,7 +834,7 @@ class HyperParamTuning(PathConfig):
         # Network training utilities
         optimizer = Adam(learning_rate=lr)
 
-        net.compile(optimizer= optimizer, loss = 'mean_squared_error')
+        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mse'])
 
         return net
 
