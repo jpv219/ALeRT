@@ -10,10 +10,13 @@ import pandas as pd
 import configparser
 import os
 import shutil
+import psutil
+from functools import partial
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
@@ -21,8 +24,15 @@ from sklearn.experimental import enable_halving_search_cv
 from sklearn.model_selection import HalvingGridSearchCV
 from sklearn.model_selection import HalvingRandomSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from keras.models import Sequential
+from keras.layers import InputLayer, Dense
+from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
+
+import ray
+from ray import tune
+from ray.tune.schedulers import ASHAScheduler
 
 
 COLOR_MAP = cm.get_cmap('viridis', 30)
@@ -549,21 +559,22 @@ class HyperParamTuning(PathConfig):
         'rf': {'n_estimators': 100},
         'svm': {'C': 1, 'epsilon': 0.1},
         'knn': {'n_neighbours': 10},
-        'mlp_reg': {'n_dense' : 2,
-                'n_shallow': 2,
-                'n_nodes_d': 128,
-                'n_nodes_s': 64,
+        'mlp_reg': {'n_dense' : tune.choice([2,4,6]),
+                'n_shallow': tune.choice([2,4,6]),
+                'n_nodes_d': tune.choice([128,256]),
+                'n_nodes_s': tune.choice([32,64]),
                 'n_epochs' : 100,
-                'batch_size' : 1,
-                'act_fn': 'relu'},
-        'mlp': {'n_dense' : 2,
-                'n_shallow': 2,
-                'n_nodes_d': 128,
-                'n_nodes_s': 64,
-                'n_epochs' : 100,
-                'batch_size' : 1,
-                'act_fn': 'relu'}
-
+                'batch_size' : tune.choice([1,5,10]),
+                'act_fn': tune.choice(['relu','sigmoid']),
+                'lr': tune.choice([0.005,0.01])},
+        'mlp': {'n_dense' : tune.choice([2,4,6]),
+                'n_shallow': tune.choice([2,4,6]),
+                'n_nodes_d': tune.choice([128,256]),
+                'n_nodes_s': tune.choice([32,64]),
+                'n_epochs' : tune.choice([100]),
+                'batch_size' : tune.choice([1,5,10]),
+                'act_fn': tune.choice(['relu','sigmoid']),
+                'lr': tune.choice([0.005,0.01])}
     }
 
     key_regressor_params = {'dt': ['max_depth','min_samples_split'],
@@ -627,38 +638,38 @@ class HyperParamTuning(PathConfig):
         if self.native == 'sk_native':
             tuned_model = self.sk_native_tuner(X, y, tuning_type, param_grid, fit_score, n_iter)
 
-        elif self.native == 'mlp':
-            tuned_model = self.mlp_hp_tuner(X, y, param_grid)
+            # Get best parameters and best estimator
+            best_params = tuned_model.best_params_
+            best_estimator = tuned_model.best_estimator_
+            best_score = tuned_model.best_score_
+            results_df = pd.DataFrame(tuned_model.cv_results_)
 
-        # Get best parameters and best estimator
-        best_params = tuned_model.best_params_
-        best_estimator = tuned_model.best_estimator_
-        best_score = tuned_model.best_score_
-        results_df = pd.DataFrame(tuned_model.cv_results_)
+            # extract score column to rank best trials executed during search
+            rank_column = next((col for col in results_df.columns if col == 'rank_test_' + fit_score), 
+                    next((col for col in results_df.columns if col.startswith('rank_test_')), None))
+            sorted_results = results_df.sort_values(by=rank_column, ascending= True)
 
-        # extract score column to rank best trials executed during search
-        rank_column = next((col for col in results_df.columns if col == 'rank_test_' + fit_score), 
-                   next((col for col in results_df.columns if col.startswith('rank_test_')), None))
-        sorted_results = results_df.sort_values(by=rank_column, ascending= True)
+            # save best performing model and parameter detail to a txt file
+            with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
+                file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
+                
+                for column in sorted_results.columns:
+                    #write only top 5 cases from sorted dataframe
+                    for i in range(len(sorted_results[:5])):
+                        file.write(f'{column} for case # {i}: {sorted_results[column].iloc[i]}' + '\n')
+                    file.write('-'*72 + '\n')
 
-        # save best performing model and parameter detail to a txt file
-        with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
-            file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
-            
-            for column in sorted_results.columns:
-                #write only top 5 cases from sorted dataframe
-                for i in range(len(sorted_results[:5])):
-                    file.write(f'{column} for case # {i}: {sorted_results[column].iloc[i]}' + '\n')
+                file.write('Best Parameters overall:' + '\n')
                 file.write('-'*72 + '\n')
+                file.write(f'{best_params}')
 
-            file.write('Best Parameters overall:' + '\n')
-            file.write('-'*72 + '\n')
-            file.write(f'{best_params}')
-
-        self.print_verbose('-'*72)
-        self.print_verbose(f'Best Parameters: {best_params}')
-        self.print_verbose(f'Best Score at Tuning: {-best_score}')
-        self.print_verbose('-'*72)
+            self.print_verbose('-'*72)
+            self.print_verbose(f'Best Parameters: {best_params}')
+            self.print_verbose(f'Best Score at Tuning: {-best_score}')
+            self.print_verbose('-'*72)
+        
+        elif self.native == 'mlp':
+            tuned_model = self.mlp_hp_tuner(X, y)
 
         return best_estimator
 
@@ -723,8 +734,104 @@ class HyperParamTuning(PathConfig):
 
         return search
     
-    def mlp_hp_tuner(self):
-        pass
+    def mlp_hp_tuner(self,X,y):
+        
+        # limit the number of CPU cores used for the whole tuning process
+        percent_cpu_to_occupy = 0.4
+        total_cpus = psutil.cpu_count(logical=False)
+        num_cpus_to_allocate = int(total_cpus * percent_cpu_to_occupy)
+
+        # search space
+        search_space = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+
+        # add data sizes for network build
+        search_space['input_size'] = tune.choice([X.shape[-1]])
+        search_space['output_size'] = tune.choice([y.shape[-1]])
+
+        # Configure and run RAY TUNING 
+        scheduler = ASHAScheduler(
+        metric='val_loss',
+        mode='min',
+        max_t= 50,
+        grace_period=20, # save period without early stopping
+        reduction_factor=2,
+        )
+
+        ray.shutdown()
+        ray.init(num_cpus=num_cpus_to_allocate)
+        num_samples = 200
+
+        tuner = tune.run(
+                        partial(self.mlp_run_tune, X,y),
+                        config=search_space,
+                        num_samples=num_samples,
+                        scheduler=scheduler,
+                        local_dir= os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
+                        )
+        
+        best_trial = tuner.get_best_trial('val_loss', 'min', 'last')
+
+        ray.shutdown()
+
+        print(f'Finished tuning hyperparameters with {num_samples} samples')
+        print(f'Best trial id: {best_trial.trial_id}')
+        print(f'Best trial config: {best_trial.config}')
+
+        return best_trial
+
+    def mlp_run_tune(self,X,y,config):
+        
+        X_train,y_train,X_val,y_val = train_test_split(X,y, test_size=0.3)
+        
+        # construct network
+        mlp = self.build_net(**config)
+
+        batch_size = config['batch_size']
+        stopper = EarlyStopping(monitor='val_loss', patience=10)
+
+        mlp.fit(X_train,y_train,validation_data = (X_val, y_val), batch_size = batch_size, epochs=50, verbose=1, callbacks = [stopper])
+
+        val_loss = mlp.evaluate(X_val,y_val)
+
+        return {"val_loss": val_loss}
+
+    @staticmethod
+    def build_net(**kwargs):
+        
+        net = Sequential()
+        
+        #Hyperparams
+        n_dense_layers = kwargs.get('n_dense')
+        n_shallow_layers = kwargs.get('n_shallow')
+        n_nodes_dense = kwargs.get('n_nodes_d')
+        n_nodes_shallow = kwargs.get('n_nodes_s')
+        act_fn = kwargs.get('act_fn')
+        lr = kwargs.get('lr')
+
+        # Feature dimensions
+        input_shape = kwargs.get('input_size',None)
+        output_shape = kwargs.get('output_size', None)
+
+        # Input layer
+        net.add(InputLayer(shape=(input_shape,)))
+
+        # Dense layers, with more nodes per layer
+        for _ in range(n_dense_layers):
+            net.add(Dense(n_nodes_dense,activation=act_fn))
+
+        # Shallow layers, with less nodes per layer
+        for _ in range(n_shallow_layers):
+            net.add(Dense(n_nodes_shallow,activation=act_fn))
+
+        # Output layer
+        net.add(Dense(output_shape,activation=act_fn))
+
+        # Network training utilities
+        optimizer = Adam(learning_rate=lr)
+
+        net.compile(optimizer= optimizer, loss = 'mean_squared_error')
+
+        return net
 
     def print_verbose(self, message):
         if self.verbose:

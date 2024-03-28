@@ -188,14 +188,16 @@ class ModelConfig:
                     'n_nodes_s': 64,
                     'n_epochs' : 100,
                     'batch_size' : 1,
-                    'act_fn': 'relu'},
+                    'act_fn': 'relu',
+                    'lr': 0.01},
         'mlp': {'n_dense' : 2,
                 'n_shallow': 2,
                 'n_nodes_d': 128,
                 'n_nodes_s': 64,
                 'n_epochs' : 100,
                 'batch_size' : 1,
-                'act_fn': 'relu'}
+                'act_fn': 'relu',
+                'lr': 0.01}
     }
 
     @classmethod
