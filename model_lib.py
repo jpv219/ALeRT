@@ -45,9 +45,6 @@ class DecisionTreeWrapper(Regressor):
                                      min_samples_leaf=min_samples_leaf, min_impurity_decrease=min_impurity_decrease,
                                      max_leaf_nodes= max_leaf_nodes, splitter= splitter,
                                      random_state = random_state)
-    
-    def model_build(self, data_packs, model, kfold, model_name):
-        return super().model_build(data_packs, model, kfold, model_name)
 
 class XGBoostWrapper(Regressor):
 
@@ -77,9 +74,6 @@ class XGBoostWrapper(Regressor):
                               gamma = gamma, reg_lambda = reg_lambda, reg_alpha = reg_alpha,
                                 random_state=random_state)
     
-    def model_build(self, data_packs, model, kfold, model_name):
-        return super().model_build(data_packs, model, kfold, model_name)
-
 class RandomForestWrapper(Regressor):
 
     def __init__(self, **kwargs):
@@ -94,9 +88,6 @@ class RandomForestWrapper(Regressor):
             raise ValueError('n_estimators is required for Random Forest Regressor')
         
         return RandomForestRegressor(n_estimators = n_estimators, random_state=random_state)
-    
-    def model_build(self, data_packs, model, kfold, model_name):
-        return super().model_build(data_packs, model, kfold, model_name)
 
 class SVMWrapper(Regressor):
 
@@ -113,9 +104,6 @@ class SVMWrapper(Regressor):
 
         return MultiOutputRegressor(SVR(C=c_coef,epsilon=epsilon))
     
-    def model_build(self, data_packs, model, kfold, model_name):
-        return super().model_build(data_packs, model, kfold, model_name)
-    
 class KNNWrapper(Regressor):
 
     def __init__(self, **kwargs):
@@ -131,9 +119,6 @@ class KNNWrapper(Regressor):
         
         return KNeighborsRegressor(n_neighbors=n_neighbours)
     
-    def model_build(self, data_packs, model, kfold, model_name):
-        return super().model_build(data_packs, model, kfold, model_name)
-    
 class MLPRegressorWrapper(MLP):
 
     def __init__(self, **kwargs):
@@ -146,9 +131,6 @@ class MLPRegressorWrapper(MLP):
 
         return KerasRegressor(model = net,verbose=1)
     
-    def model_build(self, data_packs, model, kfold, model_name):
-        return super().model_build(data_packs, model, kfold, model_name)
-    
 class MLPWrapper(MLP):
     
     def __init__(self, **kwargs):
@@ -157,14 +139,10 @@ class MLPWrapper(MLP):
     def init_model(self):
         return self.build_net()
     
-    def model_build(self, data_packs, model, kfold, model_name):
-        return super().model_build(data_packs, model, kfold, model_name)
-    
 ############################# MODEL CONFIG ###################################
 
 class ModelConfig:
         
-    
     ## Regressor instances, labels and hyperparameters
     model_names = {'dt': 'Decision_Tree', 
                     'xgb': 'XGBoost', 
@@ -210,14 +188,16 @@ class ModelConfig:
                     'n_nodes_s': 64,
                     'n_epochs' : 100,
                     'batch_size' : 1,
-                    'act_fn': 'relu'},
+                    'act_fn': 'relu',
+                    'lr': 0.01},
         'mlp': {'n_dense' : 2,
                 'n_shallow': 2,
                 'n_nodes_d': 128,
                 'n_nodes_s': 64,
                 'n_epochs' : 100,
                 'batch_size' : 1,
-                'act_fn': 'relu'}
+                'act_fn': 'relu',
+                'lr': 0.01}
     }
 
     @classmethod

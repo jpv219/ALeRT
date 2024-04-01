@@ -56,18 +56,23 @@ def main():
 
     model_name = ModelConfig.get_model_name(model_choice)
 
-    # Add input_size and output_size for MLP models
+    # Add input_size and output_size for MLP models and negate early kfold
     if model_choice in ['mlp', 'mlp_reg']:
         model_params['input_size'] = data_packs[0].shape[-1]
         model_params['output_size'] = data_packs[1].shape[-1]
-
-    skip_kfold = input('Skip pre-Kfold cross validation? (y/n): ')
-    
-    # Decide whether to do pre-kfold and include k sensitivity
-    if skip_kfold.lower() == 'n':
-        ksens = input('Include K-sensitivity? (y/n): ')
-    else:
+        skip_kfold = 'y'
         ksens = 'n'
+    
+    # only ask for early kfold on sklearn native models
+    else:
+
+        skip_kfold = input('Skip pre-Kfold cross validation? (y/n): ')
+    
+        # Decide whether to do pre-kfold and include k sensitivity
+        if skip_kfold.lower() == 'n':
+            ksens = input('Include K-sensitivity? (y/n): ')
+        else:
+            ksens = 'n'
     
     skip_hp_tune = input('Skip hyperparameter tuning cross-validation? (y/n): ')
 

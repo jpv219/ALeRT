@@ -6,3 +6,4 @@
 *.DS_Store
 /**/*h5
 /**/*keras
+**/__pycache__/*
