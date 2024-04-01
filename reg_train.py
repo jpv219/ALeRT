@@ -28,13 +28,13 @@ def main():
             label_package.append(line.split('\n')[0])
 
     # Checking in PCA has been applied to the dataset
-    if 'PCA_res' in label_package:
+    if 'PCA_info' in label_package:
         pca = True
     else:
         pca = False
     
     # Save only train and test packs
-    label_package =  [item for item in label_package if item not in ['full', 'PCA_res']]
+    label_package =  [item for item in label_package if item not in ['full', 'PCA_info']]
     
     # Load pickle files
     for label in label_package:
@@ -85,7 +85,7 @@ def main():
     tuned_model = model_instance.model_train(data_packs, model, 
                                         cv_options, model_name)
     # Calling model evaluate with tuned model
-    model_instance.model_evaluate(tuned_model, data_packs)
+    model_instance.model_evaluate(tuned_model, data_packs,case,pca)
 
 if __name__ == "__main__":
     main()

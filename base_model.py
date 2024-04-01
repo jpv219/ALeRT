@@ -236,9 +236,9 @@ class Regressor(ABC,PathConfig):
 
         return tuned_model
     
-    def model_evaluate(self,tuned_model,data_packs):
+    def model_evaluate(self,tuned_model,data_packs,case,pca):
             
-        model_eval = ModelEvaluator(tuned_model, data_packs)
+        model_eval = ModelEvaluator(tuned_model, data_packs,case,pca)
 
         print('-'*72)
         print('Evaluating final model performance')

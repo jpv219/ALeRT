@@ -7,6 +7,7 @@
 
 import numpy as np
 import pandas as pd
+import pickle
 import configparser
 import os
 import shutil
@@ -56,6 +57,10 @@ class PathConfig:
     @property
     def input_savepath(self):
         return self._config['Path']['input']
+    
+    @property
+    def pca_savepath(self):
+        return self._config['Path']['pca']
 
     @property
     def raw_datapath(self):
@@ -752,10 +757,12 @@ class HyperParamTuning(PathConfig):
                     
 class ModelEvaluator(PathConfig):
 
-    def __init__(self, model, data_packs: list):
+    def __init__(self, model, data_packs: list,case,pca):
         super().__init__()
 
         self.model = model
+        self._case = case
+        self.pca = pca
 
         # Reading data packs for model fit and eval
         self.X_train_df, self.y_train_df, self.X_test_df, self.y_test_df = data_packs[:4]
@@ -767,23 +774,57 @@ class ModelEvaluator(PathConfig):
         self.y_test = self.y_test_df.to_numpy()
 
 
-    def predict(self,X):
+    def inverse_pca(self, y_pred, y_target_df):
+        # allocate the columns on the prediction array
+        y_pred_df = pd.DataFrame(y_pred, columns=self.y_train_df.columns)
+        # extract all the reduced features, e.g., Q, E_max
+        pca_features = set([col.split('_pc')[0] for col in y_pred_df.columns])
+        
+        # load the saved pca components for each feature
+        for feature in pca_features:
+            with open(os.path.join(self.pca_savepath, self._case, f'pca_model_{feature}.pkl'), 'rb') as f:
+                pca_compnts_per_feat = pickle.load(f)
+
+            # extract all the columns related one feature
+            y_pred_per_feat = y_pred_df.filter(regex=f'{feature}_pc')
+            # inverse tranform the reduced feature back to normal space
+            y_invpred_per_feat = pca_compnts_per_feat.inverse_transform(y_pred_per_feat)
+            # allocate the columns of normal space and drop the column of reduced space
+            y_invpred_per_feat_df = pd.DataFrame(y_invpred_per_feat, columns=[f'{feature}'+'_{}'.format(i) for i in range(y_invpred_per_feat.shape[1])])
+            y_pred_df = pd.concat([y_pred_df, y_invpred_per_feat_df],axis=1).drop(y_pred_per_feat.columns,axis=1)
+
+        # align the inverse dataframe with the order of target data
+        y_pred_df_align = y_pred_df[y_target_df.columns]
+        y_pred_inv = y_pred_df_align.to_numpy()
+
+        return y_pred_inv
+    
+    def predict(self,X_df,y_target_df):
+        X = X_df.to_numpy()
         y_pred = self.model.predict(X)
-        return y_pred
+
+        if self.pca and y_pred.shape != y_target_df.shape:
+            y_pred_inv = self.inverse_pca(y_pred, y_target_df)
+            return y_pred_inv
+        else:
+            return y_pred
+ 
 
     def plot_dispersion(self):
 
-        y_pred_test = self.predict(self.X_test)
-        y_pred_train = self.predict(self.X_train)
+        y_pred_test = self.predict(self.X_test_df, self.y_test_df)
+        y_pred_train = self.predict(self.X_train_df,self.y_train_df)
 
-        x = np.linspace(np.min(y_pred_train),np.max(y_pred_train),100)
-        y = x
-        pos_dev = -1 +1.2*(x+1)
-        neg_dev = -1 +0.8*(x+1)
+        y_pred_list = [y_pred_train,y_pred_test]
 
-        fig ,axes = plt.subplots(2, figsize=(8,6), sharex=True, sharey=True)
+        fig ,axes = plt.subplots(2, figsize=(8,6))
 
-        for ax in axes:
+        for i, ax in enumerate(axes):
+            x = np.linspace(np.min(y_pred_list[i]),np.max(y_pred_list[i]),100)
+            y = x
+            pos_dev = -1 +1.2*(x+1)
+            neg_dev = -1 +0.8*(x+1)
+
             ax.plot(x,y,label = 'x=y', color = 'k', linewidth = 2.5)
             ax.plot(x,pos_dev, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')
             ax.plot(x,neg_dev, label = '-20%', color = 'r', linewidth = 1.5, linestyle = '--')
@@ -801,7 +842,7 @@ class ModelEvaluator(PathConfig):
     
     def plot_r2_hist(self, num_bins = 10):
 
-        y_pred = self.predict(self.X_test)
+        y_pred = self.predict(self.X_test_df, self.y_test_df)
         
         r2 = r2_score(self.y_test, y_pred)
 
@@ -814,7 +855,7 @@ class ModelEvaluator(PathConfig):
 
     def display_metrics(self):
 
-        y_pred = self.predict(self.X_test)
+        y_pred = self.predict(self.X_test_df, self.y_test_df)
 
         r2 = r2_score(self.y_test, y_pred)
         mse = mean_squared_error(self.y_test, y_pred)

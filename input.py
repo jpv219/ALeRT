@@ -31,6 +31,10 @@ class PathConfig:
         return self._config['Path']['input']
 
     @property
+    def pca_savepath(self):
+        return self._config['Path']['pca']
+    
+    @property
     def raw_datapath(self):
         return self._config['Path']['csv']
     
@@ -280,16 +284,16 @@ class DataProcessor(PathConfig):
         return mmscaled_data
     
     # Visualize data before and after scaling
-    def plot_scaling(self, original_data, scaled_data,data_label):
+    def plot_scaling(self, original_data, scaled_data, scaled_extreme_cases, data_label):
         
         num_features = len(original_data.columns)
         
-        fig,ax = plt.subplots(num_features,2, figsize=(12,int(num_features)*5))
+        fig,ax = plt.subplots(num_features,3, figsize=(18,int(num_features)*5))
         plt.subplots_adjust(hspace=0.8)
 
         # If only one output feature is selected, reshape the axes to allow plotting
         if num_features == 1:
-            ax = ax.reshape((1, 2))
+            ax = ax.reshape((1, 3))
 
         for i, column in enumerate(original_data.columns):
 
@@ -302,12 +306,17 @@ class DataProcessor(PathConfig):
                 for k in scaled_data.index:
                     ax[i,1].plot(scaled_data[column][k])
                     ax[i,1].set_title(f'Data after: {column}')
+                for l in scaled_extreme_cases.index:
+                    ax[i,2].plot(scaled_extreme_cases[column][l])
+                    ax[i,2].set_title(f'Scaled Data from extreme cases: {column}')
             # Scalar input features
             else:
                 ax[i,0].plot(original_data[column])
                 ax[i,0].set_title(f'Data before: {column}')
                 ax[i,1].plot(scaled_data[column])
                 ax[i,1].set_title(f'Data after: {column}')
+                ax[i,2].plot(scaled_extreme_cases[column])
+                ax[i,2].set_title(f'Scaled Data from extreme cases: {column}')
 
         fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{data_label}'),dpi=200)
         plt.show()
@@ -315,8 +324,8 @@ class DataProcessor(PathConfig):
     def PCA_reduction(self,df,var_ratio):
     
         # Empty Dataframe for PCs results and principal axes
-        pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var','Principal_Axes']
-        pca_df = pd.DataFrame(columns=pca_labels)
+        pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var']
+        pca_info_df = pd.DataFrame(columns=pca_labels)
 
         # Carry out expansion and PCA per array features(exclude scalar outputs if any)
         for column in df.select_dtypes(include=object).columns:
@@ -329,6 +338,9 @@ class DataProcessor(PathConfig):
             # PCA for dimensionality reduction, deciding n_pcs by variance captured, using the expanded df
             pca = PCA(n_components=var_ratio)
             pca_arr = pca.fit_transform(df_exp) #fit PCA and apply reduction
+            # Save the transform for later (reverse pca)
+            with open(os.path.join(self.pca_savepath, self._case, f'pca_model_{column}.pkl'), 'wb') as f:
+                pickle.dump(pca,f)
             n_pcs = pca.n_components_ # number of components extracted for the values expanded from feature 'column'
 
             # Create a df with the principal components extracted as columns - reduced set of components to describe all original values in feature 'column'
@@ -347,13 +359,12 @@ class DataProcessor(PathConfig):
             col_feature_per_component = [df_exp.columns[max_weight_per_component[i]] for i in range(n_pcs)]
 
             for i in range(n_pcs):
-                #row to add to pca_df with PCs, dominant features and explained variance
+                #row to add to pca_info_df with PCs, dominant features and explained variance
                 row_to_add = pd.Series({pca_labels[0] : f'{column}'+'_pc{}'.format(i),
                                         pca_labels[1]: col_feature_per_component[i],
-                                        pca_labels[2]: pca.explained_variance_ratio_[i]*100,
-                                        pca_labels[3]: pca.components_[i]})
+                                        pca_labels[2]: pca.explained_variance_ratio_[i]*100})
                 
-                pca_df = pd.concat([pca_df,pd.Series(row_to_add).to_frame().T],ignore_index=True)
+                pca_info_df = pd.concat([pca_info_df,pd.Series(row_to_add).to_frame().T],ignore_index=True)
 
             fig = plt.figure(figsize=(8,6))
             plt.plot(np.cumsum(pca.explained_variance_ratio_))
@@ -362,7 +373,7 @@ class DataProcessor(PathConfig):
             plt.title(f'{column}: [PC={n_pcs}]')
             fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_PCA_{column}'),dpi=200)
 
-        return df, pca_df
+        return df, pca_info_df
 
 class DataPackager(PathConfig):
 
@@ -453,9 +464,9 @@ def main():
     X_scaled = dt_processor.scale_data([X_df.copy(),X_minmax,X_filtered],scaling=scale_choice)
     y_scaled = dt_processor.scale_data([y_df.copy(),y_minmax,y_filtered],scaling=scale_choice)
 
-    # plot datapack w/o filtered minmax cases
-    dt_processor.plot_scaling(X_df,X_scaled[-1],data_label='inputs')
-    dt_processor.plot_scaling(y_df,y_scaled[-1],data_label='outputs')
+    # plot datapack with filtered minmax cases
+    dt_processor.plot_scaling(X_df,X_scaled[-1],X_scaled[1],data_label='inputs')
+    dt_processor.plot_scaling(y_df,y_scaled[-1],y_scaled[1],data_label='outputs')
 
     # train test splitting with filtered datapack
     X_train, X_test, y_train, y_test = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.25, random_state=2024)
@@ -481,10 +492,10 @@ def main():
 
         # Carry out PCA on scaled outputs for training only
         var_ratio = 0.95
-        y_train_reduced, pca_df = dt_processor.PCA_reduction(y_train,var_ratio)
+        y_train_reduced, pca_info_df = dt_processor.PCA_reduction(y_train,var_ratio)
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_df]
+        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_info_df]
         labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info']
 
     else:
