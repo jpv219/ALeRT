@@ -1,6 +1,6 @@
 ##########################################################################
 #### Model train and evaluate utilities
-#### Author : Juan Pablo Valdes
+#### Author : Juan Pablo Valdes and Fuyue Liang
 ### First commit: Feb 2024
 ### Department of Chemical Engineering, Imperial College London
 ##########################################################################
@@ -8,7 +8,6 @@
 import numpy as np
 import pandas as pd
 import pickle
-import configparser
 import os
 import shutil
 import psutil
@@ -30,6 +29,7 @@ from keras.layers import InputLayer, Dense
 from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
+from paths import PathConfig
 
 import ray
 from ray import train, tune
@@ -54,36 +54,6 @@ plt.rc('ytick', labelsize=BIGGER_SIZE)    # fontsize of the tick labels
 plt.rc('legend', fontsize=MEDIUM_SIZE)    # legend fontsize
 plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
-############################# PATH UTILITIES ##############################################
-class PathConfig:
-
-    def __init__(self):
-        self._config = configparser.ConfigParser()
-        self._config.read(os.path.join(os.getcwd(), 'config/config_paths.ini'))
-
-    @property
-    def fig_savepath(self):
-        return self._config['Path']['figs']
-
-    @property
-    def input_savepath(self):
-        return self._config['Path']['input']
-    
-    @property
-    def pca_savepath(self):
-        return self._config['Path']['pca']
-
-    @property
-    def raw_datapath(self):
-        return self._config['Path']['csv']
-    
-    @property
-    def label_datapath(self):
-        return self._config['Path']['doe']
-    
-    @property
-    def model_savepath(self):
-        return self._config['Path']['models']
 
 ############################ KFOLD CROSS VALIDATION ########################################
 

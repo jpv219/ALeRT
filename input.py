@@ -10,37 +10,11 @@ import numpy as np
 import ast
 import os
 import pickle
-import configparser
+from paths import PathConfig
 from sklearn.preprocessing import MinMaxScaler,RobustScaler,PowerTransformer,QuantileTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-
-class PathConfig:
-
-    def __init__(self):
-        self._config = configparser.ConfigParser()
-        self._config.read(os.path.join(os.getcwd(), 'config/config_paths.ini'))
-
-    @property
-    def fig_savepath(self):
-        return self._config['Path']['figs']
-
-    @property
-    def input_savepath(self):
-        return self._config['Path']['input']
-
-    @property
-    def pca_savepath(self):
-        return self._config['Path']['pca']
-    
-    @property
-    def raw_datapath(self):
-        return self._config['Path']['csv']
-    
-    @property
-    def label_datapath(self):
-        return self._config['Path']['doe']
 
 class LogScaler:
     def __init__(self,base=10):
