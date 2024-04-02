@@ -60,25 +60,25 @@ def main():
     if model_choice in ['mlp', 'mlp_reg']:
         model_params['input_size'] = data_packs[0].shape[-1]
         model_params['output_size'] = data_packs[1].shape[-1]
-        skip_kfold = 'y'
+        do_kfold = 'n'
         ksens = 'n'
     
     # only ask for early kfold on sklearn native models
     else:
 
-        skip_kfold = input('Skip pre-Kfold cross validation? (y/n): ')
+        do_kfold = input('Perform pre-Kfold cross validation? (y/n): ')
     
         # Decide whether to do pre-kfold and include k sensitivity
-        if skip_kfold.lower() == 'n':
+        if do_kfold.lower() == 'y':
             ksens = input('Include K-sensitivity? (y/n): ')
         else:
             ksens = 'n'
     
-    skip_hp_tune = input('Skip hyperparameter tuning cross-validation? (y/n): ')
+    do_hp_tune = input('Perform hyperparameter tuning cross-validation? (y/n): ')
 
-    cv_options = {'skip_kfold': True if skip_kfold.lower() == 'y' else False,
+    cv_options = {'do_kfold': True if do_kfold.lower() == 'y' else False,
           'ksens' : True if ksens.lower() == 'y' else False,
-          'hp_tune': True if skip_hp_tune.lower() == 'y' else False}
+          'do_hp_tune': True if do_hp_tune.lower() == 'y' else False}
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
