@@ -902,8 +902,8 @@ class ModelEvaluator(PathConfig):
             # inverse tranform the reduced feature back to normal space
             y_invpred_per_feat = pca_compnts_per_feat.inverse_transform(y_pred_per_feat)
             # allocate the columns of normal space and drop the column of reduced space
-            y_invpred_per_feat_df = pd.DataFrame(y_invpred_per_feat, columns=[f'{feature}'+'_{}'.format(i) for i in range(y_invpred_per_feat.shape[1])])
-            y_pred_df = pd.concat([y_pred_df, y_invpred_per_feat_df],axis=1).drop(y_pred_per_feat.columns,axis=1)
+            y_invpred_per_feat.columns = [f'{feature}'+'_{}'.format(i) for i in range(y_invpred_per_feat.shape[1])]
+            y_pred_df = pd.concat([y_pred_df, y_invpred_per_feat],axis=1).drop(y_pred_per_feat.columns,axis=1)
 
         # align the inverse dataframe with the order of target data
         y_pred_df_align = y_pred_df[y_target_df.columns]
