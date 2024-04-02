@@ -1,19 +1,22 @@
 ##########################################################################
 #### Model train and evaluate utilities
-#### Author : Juan Pablo Valdes
+#### Author : Juan Pablo Valdes and Fuyue Liang
 ### First commit: Feb 2024
 ### Department of Chemical Engineering, Imperial College London
 ##########################################################################
 
 import numpy as np
 import pandas as pd
-import configparser
+import pickle
 import os
 import shutil
+import psutil
+from functools import partial
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
@@ -21,8 +24,17 @@ from sklearn.experimental import enable_halving_search_cv
 from sklearn.model_selection import HalvingGridSearchCV
 from sklearn.model_selection import HalvingRandomSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from keras.models import Sequential
+from keras.layers import InputLayer, Dense
+from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
+from paths import PathConfig
+
+import ray
+from ray import train, tune
+from ray.tune.schedulers import ASHAScheduler
+from ray.air.integrations.keras import ReportCheckpointCallback
 
 
 COLOR_MAP = cm.get_cmap('viridis', 30)
@@ -42,32 +54,6 @@ plt.rc('ytick', labelsize=BIGGER_SIZE)    # fontsize of the tick labels
 plt.rc('legend', fontsize=MEDIUM_SIZE)    # legend fontsize
 plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
-############################# PATH UTILITIES ##############################################
-class PathConfig:
-
-    def __init__(self):
-        self._config = configparser.ConfigParser()
-        self._config.read(os.path.join(os.getcwd(), 'config/config_paths.ini'))
-
-    @property
-    def fig_savepath(self):
-        return self._config['Path']['figs']
-
-    @property
-    def input_savepath(self):
-        return self._config['Path']['input']
-
-    @property
-    def raw_datapath(self):
-        return self._config['Path']['csv']
-    
-    @property
-    def label_datapath(self):
-        return self._config['Path']['doe']
-    
-    @property
-    def model_savepath(self):
-        return self._config['Path']['models']
 
 ############################ KFOLD CROSS VALIDATION ########################################
 
@@ -549,21 +535,22 @@ class HyperParamTuning(PathConfig):
         'rf': {'n_estimators': 100},
         'svm': {'C': 1, 'epsilon': 0.1},
         'knn': {'n_neighbours': 10},
-        'mlp_reg': {'n_dense' : 2,
-                'n_shallow': 2,
-                'n_nodes_d': 128,
-                'n_nodes_s': 64,
+        'mlp_reg': {'n_dense' : tune.choice([2,4,6]),
+                'n_shallow': tune.choice([2,4,6]),
+                'n_nodes_d': tune.choice([128,256]),
+                'n_nodes_s': tune.choice([32,64]),
                 'n_epochs' : 100,
-                'batch_size' : 1,
-                'act_fn': 'relu'},
-        'mlp': {'n_dense' : 2,
-                'n_shallow': 2,
-                'n_nodes_d': 128,
-                'n_nodes_s': 64,
-                'n_epochs' : 100,
-                'batch_size' : 1,
-                'act_fn': 'relu'}
-
+                'batch_size' : tune.choice([1,5,10]),
+                'act_fn': tune.choice(['relu','sigmoid']),
+                'lr': tune.choice([0.005,0.01])},
+        'mlp': {'n_dense' : tune.choice([2,4,6]),
+                'n_shallow': tune.choice([2,4,6]),
+                'n_nodes_d': tune.choice([128,256]),
+                'n_nodes_s': tune.choice([32,64]),
+                'n_epochs' : tune.choice([100]),
+                'batch_size' : tune.choice([1,5,10]),
+                'act_fn': tune.choice(['relu','sigmoid']),
+                'lr': tune.choice([0.005,0.01])}
     }
 
     key_regressor_params = {'dt': ['max_depth','min_samples_split'],
@@ -627,38 +614,38 @@ class HyperParamTuning(PathConfig):
         if self.native == 'sk_native':
             tuned_model = self.sk_native_tuner(X, y, tuning_type, param_grid, fit_score, n_iter)
 
-        elif self.native == 'mlp':
-            tuned_model = self.mlp_hp_tuner(X, y, param_grid)
+            # Get best parameters and best estimator
+            best_params = tuned_model.best_params_
+            best_estimator = tuned_model.best_estimator_
+            best_score = tuned_model.best_score_
+            results_df = pd.DataFrame(tuned_model.cv_results_)
 
-        # Get best parameters and best estimator
-        best_params = tuned_model.best_params_
-        best_estimator = tuned_model.best_estimator_
-        best_score = tuned_model.best_score_
-        results_df = pd.DataFrame(tuned_model.cv_results_)
+            # extract score column to rank best trials executed during search
+            rank_column = next((col for col in results_df.columns if col == 'rank_test_' + fit_score), 
+                    next((col for col in results_df.columns if col.startswith('rank_test_')), None))
+            sorted_results = results_df.sort_values(by=rank_column, ascending= True)
 
-        # extract score column to rank best trials executed during search
-        rank_column = next((col for col in results_df.columns if col == 'rank_test_' + fit_score), 
-                   next((col for col in results_df.columns if col.startswith('rank_test_')), None))
-        sorted_results = results_df.sort_values(by=rank_column, ascending= True)
+            # save best performing model and parameter detail to a txt file
+            with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
+                file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
+                
+                for column in sorted_results.columns:
+                    #write only top 5 cases from sorted dataframe
+                    for i in range(len(sorted_results[:5])):
+                        file.write(f'{column} for case # {i}: {sorted_results[column].iloc[i]}' + '\n')
+                    file.write('-'*72 + '\n')
 
-        # save best performing model and parameter detail to a txt file
-        with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
-            file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
-            
-            for column in sorted_results.columns:
-                #write only top 5 cases from sorted dataframe
-                for i in range(len(sorted_results[:5])):
-                    file.write(f'{column} for case # {i}: {sorted_results[column].iloc[i]}' + '\n')
+                file.write('Best Parameters overall:' + '\n')
                 file.write('-'*72 + '\n')
+                file.write(f'{best_params}')
 
-            file.write('Best Parameters overall:' + '\n')
-            file.write('-'*72 + '\n')
-            file.write(f'{best_params}')
-
-        self.print_verbose('-'*72)
-        self.print_verbose(f'Best Parameters: {best_params}')
-        self.print_verbose(f'Best Score at Tuning: {-best_score}')
-        self.print_verbose('-'*72)
+            self.print_verbose('-'*72)
+            self.print_verbose(f'Best Parameters: {best_params}')
+            self.print_verbose(f'Best Score at Tuning: {-best_score}')
+            self.print_verbose('-'*72)
+        
+        elif self.native == 'mlp':
+            best_estimator = self.mlp_hp_tuner(X, y)
 
         return best_estimator
 
@@ -723,8 +710,108 @@ class HyperParamTuning(PathConfig):
 
         return search
     
-    def mlp_hp_tuner(self):
-        pass
+    def mlp_hp_tuner(self,X,y):
+        
+        # limit the number of CPU cores used for the whole tuning process
+        percent_cpu_to_occupy = 0.4
+        total_cpus = psutil.cpu_count(logical=False)
+        num_cpus_to_allocate = int(total_cpus * percent_cpu_to_occupy)
+
+        # search space
+        search_space = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+
+        # add data sizes for network build
+        search_space['input_size'] = tune.choice([X.shape[-1]])
+        search_space['output_size'] = tune.choice([y.shape[-1]])
+
+        # Configure and run RAY TUNING 
+        scheduler = ASHAScheduler(
+        metric='val_loss',
+        mode='min',
+        time_attr= "training_iteration",
+        max_t= 50,
+        grace_period=20 # save period without early stopping
+        )
+
+        num_samples = 10
+
+        tuner = tune.Tuner(
+                        tune.with_resources(partial(self.mlp_run_tune, X,y), resources={'cpu':num_cpus_to_allocate,'gpu': 0}),
+                        tune_config= tune.TuneConfig(
+                        metric = 'val_loss',
+                        mode = 'min',
+                        scheduler=scheduler,
+                        num_samples=num_samples,),
+                        run_config= train.RunConfig(
+                            name= 'exp',
+                            stop = {'val_loss':1e-5},
+                        ),
+                        param_space= search_space,
+                        )
+        results = tuner.fit()
+        
+        best_trial = results.get_best_result()
+
+        ray.shutdown()
+
+        print(f'Finished tuning with {num_samples} samples')
+        print(f'Best trial hyperparameters: {best_trial.config}')
+
+        return best_trial
+
+    def mlp_run_tune(self,X,y,config):
+        
+        X_train,y_train,X_val,y_val = train_test_split(X,y, test_size=0.3)
+        
+        # construct network
+        mlp = self.build_net(**config)
+
+        batch_size = config['batch_size']
+        stopper = EarlyStopping(monitor='val_loss', patience=10)
+        checkpoint = ReportCheckpointCallback(metrics={'val_loss': 'loss'})
+
+        mlp.fit(X_train,y_train,validation_data = (X_val, y_val), 
+                batch_size = batch_size, epochs=50, verbose=1, 
+                callbacks = [stopper,checkpoint])
+
+
+    @staticmethod
+    def build_net(**kwargs):
+        
+        net = Sequential()
+        
+        #Hyperparams
+        n_dense_layers = kwargs.get('n_dense')
+        n_shallow_layers = kwargs.get('n_shallow')
+        n_nodes_dense = kwargs.get('n_nodes_d')
+        n_nodes_shallow = kwargs.get('n_nodes_s')
+        act_fn = kwargs.get('act_fn')
+        lr = kwargs.get('lr')
+
+        # Feature dimensions
+        input_shape = kwargs.get('input_size',None)
+        output_shape = kwargs.get('output_size', None)
+
+        # Input layer
+        net.add(InputLayer(shape=(input_shape,)))
+
+        # Dense layers, with more nodes per layer
+        for _ in range(n_dense_layers):
+            net.add(Dense(n_nodes_dense,activation=act_fn))
+
+        # Shallow layers, with less nodes per layer
+        for _ in range(n_shallow_layers):
+            net.add(Dense(n_nodes_shallow,activation=act_fn))
+
+        # Output layer
+        net.add(Dense(output_shape,activation=act_fn))
+
+        # Network training utilities
+        optimizer = Adam(learning_rate=lr)
+
+        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mse'])
+
+        return net
 
     def print_verbose(self, message):
         if self.verbose:
@@ -752,10 +839,12 @@ class HyperParamTuning(PathConfig):
                     
 class ModelEvaluator(PathConfig):
 
-    def __init__(self, model, data_packs: list):
+    def __init__(self, model, data_packs: list,case,pca):
         super().__init__()
 
         self.model = model
+        self._case = case
+        self.pca = pca
 
         # Reading data packs for model fit and eval
         self.X_train_df, self.y_train_df, self.X_test_df, self.y_test_df = data_packs[:4]
@@ -767,23 +856,57 @@ class ModelEvaluator(PathConfig):
         self.y_test = self.y_test_df.to_numpy()
 
 
-    def predict(self,X):
+    def inverse_pca(self, y_pred, y_target_df):
+        # allocate the columns on the prediction array
+        y_pred_df = pd.DataFrame(y_pred, columns=self.y_train_df.columns)
+        # extract all the reduced features, e.g., Q, E_max
+        pca_features = set([col.split('_pc')[0] for col in y_pred_df.columns])
+        
+        # load the saved pca components for each feature
+        for feature in pca_features:
+            with open(os.path.join(self.pca_savepath, self._case, f'pca_model_{feature}.pkl'), 'rb') as f:
+                pca_compnts_per_feat = pickle.load(f)
+
+            # extract all the columns related one feature
+            y_pred_per_feat = y_pred_df.filter(regex=f'{feature}_pc')
+            # inverse tranform the reduced feature back to normal space
+            y_invpred_per_feat = pca_compnts_per_feat.inverse_transform(y_pred_per_feat)
+            # allocate the columns of normal space and drop the column of reduced space
+            y_invpred_per_feat.columns = [f'{feature}'+'_{}'.format(i) for i in range(y_invpred_per_feat.shape[1])]
+            y_pred_df = pd.concat([y_pred_df, y_invpred_per_feat],axis=1).drop(y_pred_per_feat.columns,axis=1)
+
+        # align the inverse dataframe with the order of target data
+        y_pred_df_align = y_pred_df[y_target_df.columns]
+        y_pred_inv = y_pred_df_align.to_numpy()
+
+        return y_pred_inv
+    
+    def predict(self,X_df,y_target_df):
+        X = X_df.to_numpy()
         y_pred = self.model.predict(X)
-        return y_pred
+
+        if self.pca and y_pred.shape != y_target_df.shape:
+            y_pred_inv = self.inverse_pca(y_pred, y_target_df)
+            return y_pred_inv
+        else:
+            return y_pred
+ 
 
     def plot_dispersion(self):
 
-        y_pred_test = self.predict(self.X_test)
-        y_pred_train = self.predict(self.X_train)
+        y_pred_test = self.predict(self.X_test_df, self.y_test_df)
+        y_pred_train = self.predict(self.X_train_df,self.y_train_df)
 
-        x = np.linspace(np.min(y_pred_train),np.max(y_pred_train),100)
-        y = x
-        pos_dev = -1 +1.2*(x+1)
-        neg_dev = -1 +0.8*(x+1)
+        y_pred_list = [y_pred_train,y_pred_test]
 
-        fig ,axes = plt.subplots(2, figsize=(8,6), sharex=True, sharey=True)
+        fig ,axes = plt.subplots(2, figsize=(8,6))
 
-        for ax in axes:
+        for i, ax in enumerate(axes):
+            x = np.linspace(np.min(y_pred_list[i]),np.max(y_pred_list[i]),100)
+            y = x
+            pos_dev = -1 +1.2*(x+1)
+            neg_dev = -1 +0.8*(x+1)
+
             ax.plot(x,y,label = 'x=y', color = 'k', linewidth = 2.5)
             ax.plot(x,pos_dev, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')
             ax.plot(x,neg_dev, label = '-20%', color = 'r', linewidth = 1.5, linestyle = '--')
@@ -801,7 +924,7 @@ class ModelEvaluator(PathConfig):
     
     def plot_r2_hist(self, num_bins = 10):
 
-        y_pred = self.predict(self.X_test)
+        y_pred = self.predict(self.X_test_df, self.y_test_df)
         
         r2 = r2_score(self.y_test, y_pred)
 
@@ -814,7 +937,7 @@ class ModelEvaluator(PathConfig):
 
     def display_metrics(self):
 
-        y_pred = self.predict(self.X_test)
+        y_pred = self.predict(self.X_test_df, self.y_test_df)
 
         r2 = r2_score(self.y_test, y_pred)
         mse = mean_squared_error(self.y_test, y_pred)

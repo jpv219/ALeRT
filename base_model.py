@@ -5,8 +5,6 @@
 ### Department of Chemical Engineering, Imperial College London
 ##########################################################################
 
-import os
-import configparser
 from abc import ABC, abstractmethod
 from keras.models import Sequential
 from keras.layers import InputLayer, Dense
@@ -17,34 +15,7 @@ from model_utils import KFoldCrossValidator, HyperParamTuning, ModelEvaluator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.metrics import R2Score
 import joblib
-
-############################# PATH UTILITIES ##############################################
-class PathConfig:
-
-    def __init__(self):
-        self._config = configparser.ConfigParser()
-        self._config.read(os.path.join(os.getcwd(), 'config/config_paths.ini'))
-
-    @property
-    def fig_savepath(self):
-        return self._config['Path']['figs']
-
-    @property
-    def input_savepath(self):
-        return self._config['Path']['input']
-
-    @property
-    def raw_datapath(self):
-        return self._config['Path']['csv']
-    
-    @property
-    def label_datapath(self):
-        return self._config['Path']['doe']
-    
-    @property
-    def model_savepath(self):
-        return self._config['Path']['models']
-
+from paths import PathConfig
 
 ############################# ABSTRACT PARENT CLASS ######################################
 
@@ -145,7 +116,7 @@ class Regressor(ABC,PathConfig):
     - 'repeated': Repeat Kfold cross validator. n_repeats has to be specified alongside this cv
 
     Options in cv_args:
-    - 'min_k'm 'max_k': Specified when k_sens is True to determine the extent of the K values to test
+    - 'min_k' 'max_k': Specified when k_sens is True to determine the extent of the K values to test
     - 'k': Specified when kfold cv_type is specified, determining the number of folds to run
 
     Options for tuning_type:
@@ -236,9 +207,9 @@ class Regressor(ABC,PathConfig):
 
         return tuned_model
     
-    def model_evaluate(self,tuned_model,data_packs):
+    def model_evaluate(self,tuned_model,data_packs,case,pca):
             
-        model_eval = ModelEvaluator(tuned_model, data_packs)
+        model_eval = ModelEvaluator(tuned_model, data_packs,case,pca)
 
         print('-'*72)
         print('Evaluating final model performance')
