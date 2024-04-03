@@ -82,12 +82,20 @@ class RandomForestWrapper(Regressor):
     def init_model(self):
 
         n_estimators = self.kwargs.get('n_estimators',None)
+        max_depth = self.kwargs.get('max_depth')
+        max_features = self.kwargs.get('max_features')
+        min_samples_split = self.kwargs.get('min_samples_split')
+        min_samples_leaf = self.kwargs.get('min_samples_leaf')
+        bootstrap = self.kwargs.get('bootstrap')
         random_state = self.kwargs.get('random_state',2024)
 
         if n_estimators is None:
             raise ValueError('n_estimators is required for Random Forest Regressor')
         
-        return RandomForestRegressor(n_estimators = n_estimators, random_state=random_state)
+        return RandomForestRegressor(n_estimators = n_estimators, max_depth=max_depth,
+                                     max_features=max_features,min_samples_split=min_samples_split,
+                                      min_samples_leaf=min_samples_leaf,
+                                       bootstrap=bootstrap, random_state=random_state)
 
 class SVMWrapper(Regressor):
 
@@ -96,13 +104,19 @@ class SVMWrapper(Regressor):
 
     def init_model(self):
         
-        c_coef = self.kwargs.get('C', None)
-        epsilon = self.kwargs.get('epsilon',None)
+        estimator__c = self.kwargs.get('C', None)
+        estimator__epsilon = self.kwargs.get('epsilon',None)
+        estimator__kernel = self.kwargs.get('kernel')
+        estimator__gamma = self.kwargs.get('gamma')
+        estimator__degree = self.kwargs.get('degree')
+        estimator__coef0 = self.kwargs.get('coef0')
 
-        if c_coef is None or epsilon is None:
-            raise ValueError(' C and epsilon required for SVM')
+        if estimator__c is None or estimator__epsilon is None:
+            raise ValueError('C and epsilon required for SVM')
 
-        return MultiOutputRegressor(SVR(C=c_coef,epsilon=epsilon))
+        return MultiOutputRegressor(SVR(kernel=estimator__kernel,degree=estimator__degree,
+                                        gamma= estimator__gamma, coef0= estimator__coef0, C=estimator__c,
+                                        epsilon= estimator__epsilon))
     
 class KNNWrapper(Regressor):
 
@@ -186,7 +200,12 @@ class ModelConfig:
                'min_samples_leaf': 1,
                'bootstrap': True
                },
-        'svm': {'C': 1, 'epsilon': 0.1},
+        'svm': {'C': 1, 
+                'epsilon': 0.1,
+                'kernel': 'rbf',
+                'gamma': 'scale',
+                'degree': 3,
+                'coef0': 0},
         'knn': {'n_neighbours': 10},
         'mlp_reg': {'n_dense' : 2,
                     'n_shallow': 2,
