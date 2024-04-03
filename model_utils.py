@@ -532,7 +532,12 @@ class HyperParamTuning(PathConfig):
                 'subsample': [0.5,0.7, 1], 'colsample_bytree': [0.5, 0.7, 1.0],
                 'gamma': [0, 0.01, 0.05], 'lambda' : [0.001, 0.01, 0.05],
                 'alpha': [0.05, 0.1, 0.5]}, 
-        'rf': {'n_estimators': 100},
+        'rf': {'n_estimators': [100,200,400,600,800,1000],
+               'max_depth': [None, 10, 20, 40, 60],
+               'min_samples_split': [2,5,10,20],
+               'max_features': [1,'sqrt','log2'],
+               'min_samples_leaf': [1,2,4,8],
+               'bootstrap': [True,False]},
         'svm': {'C': 1, 'epsilon': 0.1},
         'knn': {'n_neighbours': 10},
         'mlp_reg': {'n_dense' : tune.choice([2,4,6]),
@@ -554,7 +559,8 @@ class HyperParamTuning(PathConfig):
     }
 
     key_regressor_params = {'dt': ['max_depth','min_samples_split'],
-                            'xgb': ['max_depth', 'min_child_weight', 'learning_rate']}
+                            'xgb': ['max_depth', 'min_child_weight', 'learning_rate'],
+                            'rf': ['n_estimators','max_depth','min_samples_split']}
 
     model_abbr_map = {'Decision_Tree':'dt', 
                     'XGBoost':'xgb', 
