@@ -268,28 +268,32 @@ class DataProcessor(PathConfig):
         # If only one output feature is selected, reshape the axes to allow plotting
         if num_features == 1:
             ax = ax.reshape((1, 3))
+        
+        reset_data = original_data.reset_index(drop=True)
+        reset_scaled = scaled_data.reset_index(drop=True)
+        reset_extreme = scaled_extreme_cases.reset_index(drop=True)
 
-        for i, column in enumerate(original_data.columns):
+        for i, column in enumerate(reset_data.columns):
 
             # Instructions for output features read as arrays from csv
-            if original_data[column].dtype == 'object':
+            if reset_data[column].dtype == 'object':
 
-                for j in original_data.index:
-                    ax[i,0].plot(original_data[column][j])
+                for j in reset_data.index:
+                    ax[i,0].plot(reset_data[column][j])
                     ax[i,0].set_title(f'Data before: {column}')
-                for k in scaled_data.index:
-                    ax[i,1].plot(scaled_data[column][k])
+                for k in reset_scaled.index:
+                    ax[i,1].plot(reset_scaled[column][k])
                     ax[i,1].set_title(f'Data after: {column}')
-                for l in scaled_extreme_cases.index:
-                    ax[i,2].plot(scaled_extreme_cases[column][l])
+                for l in reset_extreme.index:
+                    ax[i,2].plot(reset_extreme[column][l])
                     ax[i,2].set_title(f'Scaled Data from extreme cases: {column}')
             # Scalar input features
             else:
-                ax[i,0].plot(original_data[column])
+                ax[i,0].plot(reset_data[column])
                 ax[i,0].set_title(f'Data before: {column}')
-                ax[i,1].plot(scaled_data[column])
+                ax[i,1].plot(reset_scaled[column])
                 ax[i,1].set_title(f'Data after: {column}')
-                ax[i,2].plot(scaled_extreme_cases[column])
+                ax[i,2].plot(reset_extreme[column])
                 ax[i,2].set_title(f'Scaled Data from extreme cases: {column}')
 
         fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{data_label}'),dpi=200)
