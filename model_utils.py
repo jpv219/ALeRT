@@ -195,7 +195,7 @@ class KFoldCrossValidator(PathConfig):
                     'Random_Forest': 'rf',
                     'Support_Vector_Machine': 'svm',
                     'K_Nearest_Neighbours': 'knn',
-                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'MLP_Branched_Network': 'mlp_br',
                     'Multi_Layer_Perceptron': 'mlp'}
     
     def __init__(self, model, name: str, native: str, k_sens = True, verbose = True):
@@ -550,7 +550,7 @@ class HyperParamTuning(PathConfig):
                 'algorithm': ['auto','ball_tree','kd_tree','brute'],
                 'leaf_size': [10,30,50],
                 'metric': ['euclidean', 'minkowski','chebyshev']},
-        'mlp_reg': {'n_dense' : tune.choice([2,4,6]),
+        'mlp_br': {'n_dense' : tune.choice([2,4,6]),
                 'n_shallow': tune.choice([2,4,6]),
                 'n_nodes_d': tune.choice([128,256]),
                 'n_nodes_s': tune.choice([32,64]),
@@ -579,7 +579,7 @@ class HyperParamTuning(PathConfig):
                     'Random_Forest': 'rf',
                     'Support_Vector_Machine': 'svm',
                     'K_Nearest_Neighbours': 'knn',
-                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'MLP_Branched_Network': 'mlp_br',
                     'Multi_Layer_Perceptron': 'mlp'}
     
     rename_keys = {
@@ -900,6 +900,7 @@ class ModelEvaluator(PathConfig):
         return y_pred_inv
     
     def predict(self,X_df,y_target_df):
+        
         X = X_df.to_numpy()
         y_pred = self.model.predict(X)
 

@@ -13,7 +13,6 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
-from scikeras.wrappers import KerasRegressor
 
 ############################# REGRESSOR CHILD CLASSES ###################################
 
@@ -139,17 +138,13 @@ class KNNWrapper(Regressor):
         return KNeighborsRegressor(n_neighbors=n_neighbors, weights= weights, p=p,
                                    algorithm= algorithm, leaf_size= leaf_size, metric= metric)
     
-class MLPRegressorWrapper(MLP):
+class MLPBranchWrapper(MLP):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
     
     def init_model(self):
-        
-        # wrap Keras net as a sklearn regressor object
-        net = self.build_net()
-
-        return KerasRegressor(model = net,verbose=1)
+        return self.build_branch_net()
     
 class MLPWrapper(MLP):
     
@@ -169,7 +164,7 @@ class ModelConfig:
                     'rf': 'Random_Forest',
                     'svm': 'Support_Vector_Machine',
                     'knn': 'K_Nearest_Neighbours',
-                    'mlp_reg': 'MLP_Wrapped_Regressor',
+                    'mlp_br': 'MLP_Branched_Network',
                     'mlp': 'Multi_Layer_Perceptron'}
     
     wrapper_dict = {
@@ -178,7 +173,7 @@ class ModelConfig:
         'rf': RandomForestWrapper,
         'svm': SVMWrapper,
         'knn': KNNWrapper,
-        'mlp_reg': MLPRegressorWrapper,
+        'mlp_br': MLPBranchWrapper,
         'mlp': MLPWrapper
     }
 
@@ -218,22 +213,21 @@ class ModelConfig:
                 'algorithm': 'auto',
                 'leaf_size': 30,
                 'metric': 'minkowski'},
-        'mlp_reg': {'n_dense' : 2,
-                    'n_shallow': 2,
-                    'n_nodes_d': 128,
-                    'n_nodes_s': 64,
-                    'n_epochs' : 100,
+        'mlp_br': {'n_nodes_1' : 128,
+                    'n_nodes_2': 64,
+                    'n_nodes_br': 32,
+                    'n_epochs' : 500,
                     'batch_size' : 1,
                     'act_fn': 'relu',
                     'lr': 0.01},
-        'mlp': {'n_dense' : 2,
+        'mlp': {'n_dense' : 4,
                 'n_shallow': 2,
                 'n_nodes_d': 128,
                 'n_nodes_s': 64,
-                'n_epochs' : 100,
+                'n_epochs' : 500,
                 'batch_size' : 1,
                 'act_fn': 'relu',
-                'lr': 0.01}
+                'lr': 0.001}
     }
 
     @classmethod
