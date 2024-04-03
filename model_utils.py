@@ -544,7 +544,12 @@ class HyperParamTuning(PathConfig):
                 'estimator__gamma': ['scale','auto',0.001,0.01,0.1],
                 'estimator__degree': [2,3,4],
                 'estimator__coef0': [0,0.1,1]},
-        'knn': {'n_neighbours': 10},
+        'knn': {'n_neighbors': [int(x) for x in range(1,12)],
+                'weights': ['uniform','distance'],
+                'p': [1,2,3],
+                'algorithm': ['auto','ball_tree','kd_tree','brute'],
+                'leaf_size': [10,30,50],
+                'metric': ['euclidean', 'minkowski','chebyshev']},
         'mlp_reg': {'n_dense' : tune.choice([2,4,6]),
                 'n_shallow': tune.choice([2,4,6]),
                 'n_nodes_d': tune.choice([128,256]),
@@ -566,7 +571,8 @@ class HyperParamTuning(PathConfig):
     key_regressor_params = {'dt': ['max_depth','min_samples_split'],
                             'xgb': ['max_depth', 'min_child_weight', 'learning_rate'],
                             'rf': ['n_estimators','max_depth','min_samples_split'],
-                            'svm': ['estimator__kernel','estimator__C','estimator__gamma']}
+                            'svm': ['estimator__kernel','estimator__C','estimator__gamma'],
+                            'knn': ['n_neighbors', 'weights']}
 
     model_abbr_map = {'Decision_Tree':'dt', 
                     'XGBoost':'xgb', 

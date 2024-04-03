@@ -126,12 +126,18 @@ class KNNWrapper(Regressor):
     def init_model(self):
         
         #Hyperparams
-        n_neighbours = self.kwargs.get('n_neighbours', None)
+        n_neighbors = self.kwargs.get('n_neighbors', None)
+        weights = self.kwargs.get('weights')
+        p = self.kwargs.get('p')
+        algorithm = self.kwargs.get('algorithm')
+        leaf_size = self.kwargs.get('leaf_size')
+        metric = self.kwargs.get('metric')
 
-        if n_neighbours is None:
-            raise ValueError('n_neighbours required for KNN')
+        if n_neighbors is None:
+            raise ValueError('n_neighbors required for KNN')
         
-        return KNeighborsRegressor(n_neighbors=n_neighbours)
+        return KNeighborsRegressor(n_neighbors=n_neighbors, weights= weights, p=p,
+                                   algorithm= algorithm, leaf_size= leaf_size, metric= metric)
     
 class MLPRegressorWrapper(MLP):
 
@@ -206,7 +212,12 @@ class ModelConfig:
                 'gamma': 'scale',
                 'degree': 3,
                 'coef0': 0},
-        'knn': {'n_neighbours': 10},
+        'knn': {'n_neighbors': 10,
+                'weights': 'uniform',
+                'p': 2,
+                'algorithm': 'auto',
+                'leaf_size': 30,
+                'metric': 'minkowski'},
         'mlp_reg': {'n_dense' : 2,
                     'n_shallow': 2,
                     'n_nodes_d': 128,
