@@ -822,7 +822,7 @@ class HyperParamTuning(PathConfig):
             net.add(Dense(n_nodes_shallow,activation=act_fn))
 
         # Output layer
-        net.add(Dense(output_shape,activation=act_fn))
+        net.add(Dense(output_shape,activation='linear'))
 
         # Network training utilities
         optimizer = Adam(learning_rate=lr)
@@ -900,7 +900,7 @@ class ModelEvaluator(PathConfig):
         return y_pred_inv
     
     def predict(self,X_df,y_target_df):
-        
+
         X = X_df.to_numpy()
         y_pred = self.model.predict(X)
 

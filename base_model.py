@@ -6,8 +6,6 @@
 ##########################################################################
 
 from abc import ABC, abstractmethod
-from keras.models import Sequential, Model
-from keras.layers import InputLayer, Dense, Input, Concatenate, Reshape
 from keras.optimizers import Adam
 import tensorflow as tf
 #Model metrics and utilities
@@ -251,77 +249,17 @@ class MLP(Regressor):
         """Initialize the regression model."""
         pass
 
+    @abstractmethod
+    def get_network(self):
+        """Construct and return network architecture."""
+        pass
+
     # Build net architecture without compiling, for later custom pipeline handling
     def build_net(self):
 
-        net = Sequential()
+        net = self.get_network()
         
-        #Hyperparams
-        n_dense_layers = self.kwargs.get('n_dense', 2)
-        n_shallow_layers = self.kwargs.get('n_shallow',2)
-        n_nodes_dense = self.kwargs.get('n_nodes_d',128)
-        n_nodes_shallow = self.kwargs.get('n_nodes_s', 64)
-        act_fn = self.kwargs.get('act_fn', 'relu')
         lr = self.kwargs.get('lr',0.001)
-
-        # Feature dimensions
-        input_shape = self.kwargs.get('input_size',None)
-        output_shape = self.kwargs.get('output_size', None)
-
-        # Input layer
-        net.add(InputLayer(shape=(input_shape,)))
-
-        # Dense layers, with more nodes per layer
-        for _ in range(n_dense_layers):
-            net.add(Dense(n_nodes_dense,activation=act_fn))
-
-        # Shallow layers, with less nodes per layer
-        for _ in range(n_shallow_layers):
-            net.add(Dense(n_nodes_shallow,activation=act_fn))
-
-        # Output layer
-        net.add(Dense(output_shape,activation='linear'))
-
-        # Network training utilities
-        optimizer = Adam(learning_rate=lr)
-
-        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics=['mae', 'mse', R2Score()])
-
-        return net
-
-    def build_branch_net(self):
-
-        n_nodes_1 = self.kwargs.get('n_nodes_1',64)
-        n_nodes_2 = self.kwargs.get('n_nodes_2', 32)
-        n_nodes_br = self.kwargs.get('n_nodes_br', 32)
-        act_fn = self.kwargs.get('act_fn', 'relu')
-        lr = self.kwargs.get('lr',0.001)
-        
-        # Feature dimensions
-        input_shape = self.kwargs.get('input_size',None)
-        output_shape = self.kwargs.get('output_size', None)
-        n_features = self.kwargs.get('n_features')
-        
-        inputs = Input(shape=(input_shape,))
-
-        # hidden layers for processing inputs
-        hidden1 = Dense(n_nodes_1, activation=act_fn)(inputs)
-        hidden2 = Dense(n_nodes_2, activation= act_fn)(hidden1)
-
-        #construct branches for each feature and connect to output
-        outputs = []
-
-        for _ in range(n_features):
-
-            branch_hidden = Dense(n_nodes_br, activation= act_fn) (hidden2)
-            branch_out = Dense(100, activation= 'linear')(branch_hidden)
-            outputs.append(branch_out)
-
-        concatenated = Concatenate()(outputs)
-
-        reshaped_out = Reshape((output_shape,))(concatenated)
-
-        net = Model(inputs = inputs, outputs = reshaped_out)
 
         # Network training utilities
         optimizer = Adam(learning_rate=lr)
