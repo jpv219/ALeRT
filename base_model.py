@@ -181,7 +181,7 @@ class Regressor(ABC,PathConfig):
             hyperparam_tuning = HyperParamTuning(model,model_name, native, verbose= True)
 
             # tuning arguments
-            hptune_args = self.get_cvargs('hp_tuning', score='mse')
+            hptune_args = self.get_cvargs('hp_tuning', score=es_score)
 
             # calling hyperparam tuning. if random selected
             tuned_model = hyperparam_tuning(X_train_arr, y_train_arr, **hptune_args)

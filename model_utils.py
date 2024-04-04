@@ -10,13 +10,11 @@ import pandas as pd
 import pickle
 import os
 import shutil
-import psutil
 from functools import partial
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
@@ -24,17 +22,15 @@ from sklearn.experimental import enable_halving_search_cv
 from sklearn.model_selection import HalvingGridSearchCV
 from sklearn.model_selection import HalvingRandomSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from keras.metrics import R2Score
 from keras.models import Sequential
 from keras.layers import InputLayer, Dense
 from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
 from paths import PathConfig
-
-import ray
-from ray import train, tune
-from ray.tune.schedulers import ASHAScheduler
-from ray.air.integrations.keras import ReportCheckpointCallback
+from kerastuner.tuners import Hyperband
+from kerastuner import HyperParameters, Objective
 
 
 COLOR_MAP = cm.get_cmap('viridis', 30)
@@ -550,22 +546,20 @@ class HyperParamTuning(PathConfig):
                 'algorithm': ['auto','ball_tree','kd_tree','brute'],
                 'leaf_size': [10,30,50],
                 'metric': ['euclidean', 'minkowski','chebyshev']},
-        'mlp_br': {'n_dense' : tune.choice([2,4,6]),
-                'n_shallow': tune.choice([2,4,6]),
-                'n_nodes_d': tune.choice([128,256]),
-                'n_nodes_s': tune.choice([32,64]),
+        'mlp_br': {'n_dense' : [2,4,6],
+                'n_shallow': [2,4,6],
+                'n_nodes_d': [128,256],
+                'n_nodes_s': [32,64],
                 'n_epochs' : 100,
-                'batch_size' : tune.choice([1,5,10]),
-                'act_fn': tune.choice(['relu','sigmoid']),
-                'lr': tune.choice([0.005,0.01])},
-        'mlp': {'n_dense' : tune.choice([2,4,6]),
-                'n_shallow': tune.choice([2,4,6]),
-                'n_nodes_d': tune.choice([128,256]),
-                'n_nodes_s': tune.choice([32,64]),
-                'n_epochs' : tune.choice([100]),
-                'batch_size' : tune.choice([1,5,10]),
-                'act_fn': tune.choice(['relu','sigmoid']),
-                'lr': tune.choice([0.005,0.01])}
+                'batch_size' : [1,5,10],
+                'act_fn': ['relu','sigmoid'],
+                'lr': [0.005,0.01]},
+        'mlp': {'n_dense_layers' : (1,5,1), # when using tuples, the values specified are initial,final,step
+                'n_shallow_layers': (1,5,1),
+                'n_nodes_dense': (64,512,32),
+                'n_nodes_shallow': (32,128,32),
+                'act_fn': ['relu', 'sigmoid', 'tanh'],
+                'lr': [1e-2, 1e-3, 1e-4]}
     }
 
     key_regressor_params = {'dt': ['max_depth','min_samples_split'],
@@ -587,7 +581,8 @@ class HyperParamTuning(PathConfig):
             'mae': 'neg_mean_absolute_error',
             'mse': 'neg_mean_squared_error',
             'variance': 'explained_variance',
-            'rmse': 'neg_root_mean_squared_error'
+            'rmse': 'neg_root_mean_squared_error',
+            'loss': 'loss'
         }
     
     
@@ -663,7 +658,21 @@ class HyperParamTuning(PathConfig):
             self.print_verbose('-'*72)
         
         elif self.native == 'mlp':
-            best_estimator = self.mlp_hp_tuner(X, y)
+            best_estimator, tuner = self.mlp_hp_tuner(X, y, param_grid, fit_score)
+
+            best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
+
+            # save best performing model and parameter detail to a txt file
+            with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
+                file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
+                file.write('-'*72 + '\n')
+                file.write(tuner.results_summary(num_trials=5))
+                file.write('-'*72 + '\n')
+
+                file.write('Best Parameters overall:' + '\n')
+                file.write('-'*72 + '\n')
+                for item in param_grid.keys():
+                    file.write(f'best {item}: {best_hps.get(item)}' + '\n')
 
         return best_estimator
 
@@ -728,87 +737,79 @@ class HyperParamTuning(PathConfig):
 
         return search
     
-    def mlp_hp_tuner(self,X,y):
-        
-        # limit the number of CPU cores used for the whole tuning process
-        percent_cpu_to_occupy = 0.4
-        total_cpus = psutil.cpu_count(logical=False)
-        num_cpus_to_allocate = int(total_cpus * percent_cpu_to_occupy)
+    def mlp_hp_tuner(self, X: np.array, y: np.array, param_grid: dict, fit_score: str):
 
-        # search space
-        search_space = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+        # Data size for network construction
+        input_shape = X.shape[-1]
+        output_shape = y.shape[-1]
 
-        # add data sizes for network build
-        search_space['input_size'] = tune.choice([X.shape[-1]])
-        search_space['output_size'] = tune.choice([y.shape[-1]])
+        #save dir
+        save_dir = os.path.join(self.model_savepath,self.model_name)
 
-        # Configure and run RAY TUNING 
-        scheduler = ASHAScheduler(
-        metric='val_loss',
-        mode='min',
-        time_attr= "training_iteration",
-        max_t= 50,
-        grace_period=20 # save period without early stopping
+        #construct hyperparameter sample space to be explored by Keras tuner
+        hp = HyperParameters()
+
+        for param, values in param_grid.items():
+
+            # specific values in a list
+            if isinstance(values, list):
+                hp.Choice(param,values)
+
+            # values defined as a step-wise list
+            elif isinstance(values, tuple):
+                hp.Int(param,values[0],values[1],values[2])
+
+        # build network function set as partial to hand in data shape inputs
+        build_net_partial = partial(self.build_net, input_shape = input_shape, output_shape = output_shape)
+
+        tuner = Hyperband(
+            hypermodel = build_net_partial,
+            objective= Objective(fit_score,'min'),
+            hyperparameters= hp,
+            max_epochs = 10,
+            factor = 3,
+            directory = save_dir,
+            project_name = 'hyperparam_tune',
+            hyperband_iterations= 3 
         )
 
-        num_samples = 10
+        stop_early = EarlyStopping(monitor=fit_score, patience=5)
 
-        tuner = tune.Tuner(
-                        tune.with_resources(partial(self.mlp_run_tune, X,y), resources={'cpu':num_cpus_to_allocate,'gpu': 0}),
-                        tune_config= tune.TuneConfig(
-                        metric = 'val_loss',
-                        mode = 'min',
-                        scheduler=scheduler,
-                        num_samples=num_samples,),
-                        run_config= train.RunConfig(
-                            name= 'exp',
-                            stop = {'val_loss':1e-5},
-                        ),
-                        param_space= search_space,
-                        )
-        results = tuner.fit()
-        
-        best_trial = results.get_best_result()
+        # Perform the hyperparameter search
+        tuner.search(X, y, 
+                     validation_split=0.3, 
+                     epochs=50,
+                     shuffle=True,
+                     callbacks=[stop_early]
+                     )
 
-        ray.shutdown()
+        # get best hyperparameters
+        best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
 
-        print(f'Finished tuning with {num_samples} samples')
-        print(f'Best trial hyperparameters: {best_trial.config}')
+        # Build the best model
+        best_model = tuner.hypermodel.build(best_hps)
 
-        return best_trial
+        # Train the best model
+        best_model.fit(X, y, epochs=100, validation_split = 0.3, batch_size = 1)
 
-    def mlp_run_tune(self,X,y,config):
-        
-        X_train,y_train,X_val,y_val = train_test_split(X,y, test_size=0.3)
-        
-        # construct network
-        mlp = self.build_net(**config)
-
-        batch_size = config['batch_size']
-        stopper = EarlyStopping(monitor='val_loss', patience=10)
-        checkpoint = ReportCheckpointCallback(metrics={'val_loss': 'loss'})
-
-        mlp.fit(X_train,y_train,validation_data = (X_val, y_val), 
-                batch_size = batch_size, epochs=50, verbose=1, 
-                callbacks = [stopper,checkpoint])
-
+        return best_model, tuner
 
     @staticmethod
-    def build_net(**kwargs):
-        
+    def build_net(hp, input_shape, output_shape):
+        """
+        Build model for hyperparameters tuning
+
+        hp: HyperParameters class instance
+        """
         net = Sequential()
         
         #Hyperparams
-        n_dense_layers = kwargs.get('n_dense')
-        n_shallow_layers = kwargs.get('n_shallow')
-        n_nodes_dense = kwargs.get('n_nodes_d')
-        n_nodes_shallow = kwargs.get('n_nodes_s')
-        act_fn = kwargs.get('act_fn')
-        lr = kwargs.get('lr')
-
-        # Feature dimensions
-        input_shape = kwargs.get('input_size',None)
-        output_shape = kwargs.get('output_size', None)
+        n_dense_layers = hp.get('n_dense_layers')
+        n_shallow_layers = hp.get('n_shallow_layers')
+        n_nodes_dense = hp.get('n_nodes_dense')
+        n_nodes_shallow = hp.get('n_nodes_shallow')
+        act_fn = hp.get('act_fn')
+        lr = hp.get('lr')
 
         # Input layer
         net.add(InputLayer(shape=(input_shape,)))
@@ -827,7 +828,7 @@ class HyperParamTuning(PathConfig):
         # Network training utilities
         optimizer = Adam(learning_rate=lr)
 
-        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mse'])
+        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mae', 'mse', R2Score()])
 
         return net
 
