@@ -738,7 +738,7 @@ class HyperParamTuning(PathConfig):
         self.print_verbose(f'Starting first hyperparameter sweep for {self.model_name} with parameters: {key_params}')
         self.print_verbose('-'*72)
         
-        first_search = self.sk_run_tune(first_param_sweep, fit_score, score_metrics, tuner = tuners.get('std'))
+        first_search = self.sk_run_tune(first_param_sweep, fit_score, score_metrics, tuner = tuners.get('std'), tuning_type='std', n_iter = None)
 
         # Fit model with hyperparam tuning search
         first_tune = first_search.fit(X,y)
