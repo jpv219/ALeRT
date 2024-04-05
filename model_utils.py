@@ -23,8 +23,8 @@ from sklearn.model_selection import HalvingGridSearchCV
 from sklearn.model_selection import HalvingRandomSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from keras.metrics import R2Score
-from keras.models import Sequential
-from keras.layers import InputLayer, Dense
+from keras.models import Sequential, Model
+from keras.layers import InputLayer, Dense, Input, Concatenate, Reshape
 from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
@@ -546,14 +546,11 @@ class HyperParamTuning(PathConfig):
                 'algorithm': ['auto','ball_tree','kd_tree','brute'],
                 'leaf_size': [10,30,50],
                 'metric': ['euclidean', 'minkowski','chebyshev']},
-        'mlp_br': {'n_dense' : [2,4,6],
-                'n_shallow': [2,4,6],
-                'n_nodes_d': [128,256],
-                'n_nodes_s': [32,64],
-                'n_epochs' : 100,
-                'batch_size' : [1,5,10],
-                'act_fn': ['relu','sigmoid'],
-                'lr': [0.005,0.01]},
+        'mlp_br': {'n_nodes_1' : (64,512,32),
+                'n_nodes_2': (32,192,32),
+                'n_nodes_br': (32,256,32),
+                'act_fn': ['relu','sigmoid', 'tanh'],
+                'lr': [1e-2, 1e-3, 1e-4]},
         'mlp': {'n_dense_layers' : (1,5,1), # when using tuples, the values specified are initial,final,step
                 'n_shallow_layers': (1,5,1),
                 'n_nodes_dense': (64,512,32),
@@ -608,7 +605,7 @@ class HyperParamTuning(PathConfig):
         # Optional kwargs depending on tuning cv call
         tuning_type = kwargs.get('tuning_type')
         input_score = kwargs.get('fit_score', 'mse')
-        n_iter  = kwargs.get('n_iter',None)
+        n_iter  = kwargs.get('n_iter', None)
 
         # get sklearn appropaite identifier for fit score
         fit_score = HyperParamTuning.rename_keys.get(input_score)
@@ -658,7 +655,13 @@ class HyperParamTuning(PathConfig):
             self.print_verbose('-'*72)
         
         elif self.native == 'mlp':
-            best_estimator, tuner = self.mlp_hp_tuner(X, y, param_grid, fit_score)
+
+            input_size = kwargs.get('input_size')
+            output_size = kwargs.get('output_size')
+            n_features = kwargs.get('n_features')
+
+            best_estimator, tuner = self.mlp_hp_tuner(X,y,param_grid, fit_score,
+                                                      input_size, output_size,n_features)
 
             best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
 
@@ -737,11 +740,8 @@ class HyperParamTuning(PathConfig):
 
         return search
     
-    def mlp_hp_tuner(self, X: np.array, y: np.array, param_grid: dict, fit_score: str):
-
-        # Data size for network construction
-        input_shape = X.shape[-1]
-        output_shape = y.shape[-1]
+    def mlp_hp_tuner(self, X: np.array, y: np.array, param_grid: dict, fit_score: str, 
+                     input_size: int, output_size: int, n_features: int):
 
         #save dir
         save_dir = os.path.join(self.model_savepath,self.model_name)
@@ -760,7 +760,7 @@ class HyperParamTuning(PathConfig):
                 hp.Int(param,values[0],values[1],values[2])
 
         # build network function set as partial to hand in data shape inputs
-        build_net_partial = partial(self.build_net, input_shape = input_shape, output_shape = output_shape)
+        build_net_partial = partial(self.build_net, input_size, output_size, n_features)
 
         tuner = Hyperband(
             hypermodel = build_net_partial,
@@ -794,13 +794,29 @@ class HyperParamTuning(PathConfig):
 
         return best_model, tuner
 
-    @staticmethod
-    def build_net(hp, input_shape, output_shape):
+    def build_net(self, hp, input_size, output_size, n_features):
         """
-        Build model for hyperparameters tuning
+        Build network model for hyperparameters tuning
 
         hp: HyperParameters class instance
         """
+        lr = hp.get('lr')
+        
+        if self.model_abbr == 'mlp':
+            net = self.mlp(hp,input_size,output_size)
+        else:
+            net = self.mlp_branched(hp,input_size,output_size, n_features)
+
+        # Network training utilities
+        optimizer = Adam(learning_rate=lr)
+
+        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mae', 'mse', R2Score()])
+
+        return net
+
+    @staticmethod
+    def mlp(hp, input_size, output_size):
+        
         net = Sequential()
         
         #Hyperparams
@@ -809,10 +825,9 @@ class HyperParamTuning(PathConfig):
         n_nodes_dense = hp.get('n_nodes_dense')
         n_nodes_shallow = hp.get('n_nodes_shallow')
         act_fn = hp.get('act_fn')
-        lr = hp.get('lr')
 
         # Input layer
-        net.add(InputLayer(shape=(input_shape,)))
+        net.add(InputLayer(shape=(input_size,)))
 
         # Dense layers, with more nodes per layer
         for _ in range(n_dense_layers):
@@ -823,12 +838,39 @@ class HyperParamTuning(PathConfig):
             net.add(Dense(n_nodes_shallow,activation=act_fn))
 
         # Output layer
-        net.add(Dense(output_shape,activation='linear'))
+        net.add(Dense(output_size,activation='linear'))
 
-        # Network training utilities
-        optimizer = Adam(learning_rate=lr)
+        return net
 
-        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mae', 'mse', R2Score()])
+    @staticmethod
+    def mlp_branched(hp, input_size, output_size, n_features):
+
+        #Hyperparams
+        n_nodes_1 = hp.get('n_nodes_1',64)
+        n_nodes_2 = hp.get('n_nodes_2', 32)
+        n_nodes_br = hp.get('n_nodes_br', 32)
+        act_fn = hp.get('act_fn', 'relu')
+        
+        inputs = Input(shape=(input_size,))
+
+        # hidden layers for processing inputs
+        hidden1 = Dense(n_nodes_1, activation=act_fn)(inputs)
+        hidden2 = Dense(n_nodes_2, activation= act_fn)(hidden1)
+
+        #construct branches for each feature and connect to output
+        outputs = []
+
+        for _ in range(n_features):
+
+            branch_hidden = Dense(n_nodes_br, activation= act_fn) (hidden2)
+            branch_out = Dense(100, activation= 'linear')(branch_hidden)
+            outputs.append(branch_out)
+
+        concatenated = Concatenate()(outputs)
+
+        reshaped_out = Reshape((output_size,))(concatenated)
+
+        net = Model(inputs = inputs, outputs = reshaped_out)
 
         return net
 
