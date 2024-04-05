@@ -588,7 +588,7 @@ class HyperParamTuning(PathConfig):
         super().__init__()
         
         self.model_name = name
-        self.model_abbr = HyperParamTuning.model_abbr_map.get(name, None)
+        self.model_abbr = self.get_value(dict_name= 'model_abbr_map',key= name)
         self.native = native
         self.verbose = verbose
 
@@ -602,15 +602,19 @@ class HyperParamTuning(PathConfig):
         # Training data sets
         X, y = args[0], args[1]
 
-        # Optional kwargs depending on tuning cv call
-        tuning_type = kwargs.get('tuning_type')
-        input_score = kwargs.get('fit_score', 'mse')
+        # Optional kwargs depending on tuning cv call and native model
+        if self.native == 'sk_native':
+            tuning_type = kwargs.get('sk_tuning_type')
+        else:
+            tuning_type = kwargs.get('mlp_tuning_type')
+        input_score = kwargs.get('fit_score')
         n_iter  = kwargs.get('n_iter', None)
 
         # get sklearn appropaite identifier for fit score
-        fit_score = HyperParamTuning.rename_keys.get(input_score)
+        fit_score = self.get_value(dict_name='rename_keys', key= input_score)
+
         # get hyperparameter searcher
-        param_grid = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+        param_grid = self.get_value(dict_name='regressor_hp_search_space',key = self.model_abbr)
 
         # create/clean saving tune directory
         tune_save_dir = os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
@@ -660,7 +664,7 @@ class HyperParamTuning(PathConfig):
             output_size = kwargs.get('output_size')
             n_features = kwargs.get('n_features')
 
-            best_estimator, tuner = self.mlp_hp_tuner(X,y,param_grid, fit_score,
+            best_estimator, tuner = self.mlp_hp_tuner(X, y, tuning_type, param_grid, fit_score,
                                                       input_size, output_size,n_features)
 
             best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
@@ -669,15 +673,44 @@ class HyperParamTuning(PathConfig):
             with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
                 file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
                 file.write('-'*72 + '\n')
-                file.write(tuner.results_summary(num_trials=5))
-                file.write('-'*72 + '\n')
+
+                for trial in tuner.oracle.get_best_trials(5):
+                    file.write(f'Trial ID: {trial.trial_id}' + '\n')
+                    file.write(f'Hyperparameters: {trial.hyperparameters.values}' + '\n')
+                    file.write(f'Score: {trial.score}' + '\n')
+                    file.write('-'*72 + '\n')
 
                 file.write('Best Parameters overall:' + '\n')
                 file.write('-'*72 + '\n')
                 for item in param_grid.keys():
                     file.write(f'best {item}: {best_hps.get(item)}' + '\n')
 
+            self.print_verbose('-'*72)
+            tuner.results_summary()
+            self.print_verbose('-'*72)
+        
         return best_estimator
+    
+    def print_verbose(self, message):
+        if self.verbose:
+            print(message)
+
+    @staticmethod
+    def clean_dir(dir):
+        
+        # Create kfold run checkpoint folder
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+        # clean if previous files exist
+        else:
+            for filename in os.listdir(dir):
+                file_path = os.path.join(dir,filename)
+
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # Remove directory and its contents
+                else:
+                    os.remove(file_path)
 
     def sk_native_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, n_iter = 1000):
         
@@ -697,7 +730,7 @@ class HyperParamTuning(PathConfig):
         score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
 
         # First tuning run on most influential parameters
-        key_params = HyperParamTuning.key_regressor_params.get(self.model_abbr) 
+        key_params = self.get_value(dict_name = 'key_regressor_params',key = self.model_abbr)
         first_param_sweep = {key: param_grid[key] for key in key_params}
 
         self.print_verbose('-'*72)
@@ -740,7 +773,7 @@ class HyperParamTuning(PathConfig):
 
         return search
     
-    def mlp_hp_tuner(self, X: np.array, y: np.array, param_grid: dict, fit_score: str, 
+    def mlp_hp_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, 
                      input_size: int, output_size: int, n_features: int):
 
         #save dir
@@ -760,7 +793,8 @@ class HyperParamTuning(PathConfig):
                 hp.Int(param,values[0],values[1],values[2])
 
         # build network function set as partial to hand in data shape inputs
-        build_net_partial = partial(self.build_net, input_size, output_size, n_features)
+        build_net_partial = partial(self.build_net, input_size = input_size, 
+                                    output_size = output_size, n_features = n_features)
 
         tuner = Hyperband(
             hypermodel = build_net_partial,
@@ -773,7 +807,7 @@ class HyperParamTuning(PathConfig):
             hyperband_iterations= 3 
         )
 
-        stop_early = EarlyStopping(monitor=fit_score, patience=5)
+        stop_early = EarlyStopping(monitor=fit_score, patience=10)
 
         # Perform the hyperparameter search
         tuner.search(X, y, 
@@ -787,10 +821,20 @@ class HyperParamTuning(PathConfig):
         best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
 
         # Build the best model
+        model = tuner.hypermodel.build(best_hps)
+
+        # Train the best model and find the best performing epoch
+        history = model.fit(X, y, epochs=100, validation_split = 0.3, batch_size = 1)
+
+        val_loss_per_epoch = history.history['val_loss']
+        best_epoch = np.argmax(val_loss_per_epoch) + 1
+
+        self.print_verbose('Re-training the model with the optimal epochs and hps found')
+        
+        #re-train the model with the optimal epoch found
         best_model = tuner.hypermodel.build(best_hps)
 
-        # Train the best model
-        best_model.fit(X, y, epochs=100, validation_split = 0.3, batch_size = 1)
+        best_model.fit(X, y, epochs=best_epoch, validation_split = 0.3, batch_size = 1, callbacks = [stop_early])
 
         return best_model, tuner
 
@@ -846,10 +890,10 @@ class HyperParamTuning(PathConfig):
     def mlp_branched(hp, input_size, output_size, n_features):
 
         #Hyperparams
-        n_nodes_1 = hp.get('n_nodes_1',64)
-        n_nodes_2 = hp.get('n_nodes_2', 32)
-        n_nodes_br = hp.get('n_nodes_br', 32)
-        act_fn = hp.get('act_fn', 'relu')
+        n_nodes_1 = hp.get('n_nodes_1')
+        n_nodes_2 = hp.get('n_nodes_2')
+        n_nodes_br = hp.get('n_nodes_br')
+        act_fn = hp.get('act_fn')
         
         inputs = Input(shape=(input_size,))
 
@@ -873,27 +917,21 @@ class HyperParamTuning(PathConfig):
         net = Model(inputs = inputs, outputs = reshaped_out)
 
         return net
+    
+    @classmethod
+    def get_value(cls, dict_name : str, key: str):
 
-    def print_verbose(self, message):
-        if self.verbose:
-            print(message)
-
-    @staticmethod
-    def clean_dir(dir):
+        # check if dictionary exists
+        if not hasattr(cls, dict_name):
+            raise ValueError(f'Dictionary {dict_name} does not exist in {cls.__name__}')
         
-        # Create kfold run checkpoint folder
-        if not os.path.exists(dir):
-            os.makedirs(dir)
+        # Retrive class dictionary
+        dictionary = getattr(cls, dict_name)
 
-        # clean if previous files exist
-        else:
-            for filename in os.listdir(dir):
-                file_path = os.path.join(dir,filename)
-
-                if os.path.isdir(file_path):
-                    shutil.rmtree(file_path)  # Remove directory and its contents
-                else:
-                    os.remove(file_path)
+        if key not in dictionary:
+            raise KeyError(f'Key {key} specified does not exist in dictionary {dict_name}')
+        
+        return dictionary.get(key)
 
 
 ########################### MODEL EVALUATION ##############################################

@@ -49,14 +49,17 @@ def main():
     # Model selection from user input
     model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp_br, mlp): ')
     
+    # Model configurer
+    m_config = ModelConfig()
+    
     # selecting corresponding wrapper, hyperparams and model_name
-    wrapper_model = ModelConfig.get_wrapper(model_choice)
+    wrapper_model = m_config.get_wrapper(model_choice)
 
-    model_params = ModelConfig.get_hyperparameters(model_choice)
+    model_params = m_config.get_hyperparameters(model_choice)
 
-    model_name = ModelConfig.get_model_name(model_choice)
+    model_name = m_config.get_model_name(model_choice)
 
-    # Add input_size and output_size for MLP models and negate early kfold
+    # Add input_size, output_size and n_features for MLP models and negate early kfold
     if model_choice in ['mlp', 'mlp_br']:
         model_params['input_size'] = data_packs[0].shape[-1]
         model_params['output_size'] = data_packs[1].shape[-1]
@@ -67,12 +70,11 @@ def main():
 
         for feat in features:
             # split the column number from the feature name
-            name = feat.split('_')[0]
+            name = feat.rsplit('_',1)[0]
             unique_features.add(name)
 
         n_features = len(unique_features)
         model_params['n_features'] = n_features
-
 
         do_kfold = 'n'
         ksens = 'n'

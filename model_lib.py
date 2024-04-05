@@ -140,7 +140,7 @@ class KNNWrapper(Regressor):
         return KNeighborsRegressor(n_neighbors=n_neighbors, weights= weights, p=p,
                                    algorithm= algorithm, leaf_size= leaf_size, metric= metric)
     
-class MLPBranchWrapper(MLP):
+class MLPBranchedWrapper(MLP):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -183,8 +183,7 @@ class MLPBranchWrapper(MLP):
         net = Model(inputs = inputs, outputs = reshaped_out)
 
         return net
-
-    
+  
 class MLPWrapper(MLP):
     
     def __init__(self, **kwargs):
@@ -243,7 +242,7 @@ class ModelConfig:
         'rf': RandomForestWrapper,
         'svm': SVMWrapper,
         'knn': KNNWrapper,
-        'mlp_br': MLPBranchWrapper,
+        'mlp_br': MLPBranchedWrapper,
         'mlp': MLPWrapper
     }
 

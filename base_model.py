@@ -8,6 +8,7 @@
 from abc import ABC, abstractmethod
 from keras.optimizers import Adam
 import tensorflow as tf
+import numpy as np
 #Model metrics and utilities
 from model_utils import KFoldCrossValidator, HyperParamTuning, ModelEvaluator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -71,7 +72,8 @@ class Regressor(ABC,PathConfig):
                         'max_k':50,
                         'k': 5,
                         'earlystop_score': score},
-                'hp_tuning': {'tuning_type': 'std',
+                'hp_tuning': {'sk_tuning_type': 'std',
+                              'mlp_tuning_type': 'hyperband',
                            'n_iter': 30,
                            'fit_score': score},
                 'final_kf': {'cv_type': 'kfold',
@@ -86,8 +88,8 @@ class Regressor(ABC,PathConfig):
         
         return args.get(cv)
 
-
-    def kfold_cv(self, X,y, model, model_name, native, es_score, k_sens, step):
+    # Kfold cross validation operation from model utils
+    def kfold_cv(self, X: np.array, y: np.array, model, model_name: str, native: str, es_score: str, k_sens: bool, step: str):
 
         # kfold cross validator arguments
         cv_args = self.get_cvargs(step, es_score)
@@ -105,7 +107,6 @@ class Regressor(ABC,PathConfig):
         cv_model = self.load_model(model_dir, isinstance(self,MLP))
 
         return cv_model
-
 
     # Model train main pipeline: kfold + gridsearch + kfold
     def model_train(self, data_packs: list, model, cv_options: dict, model_name: str):
