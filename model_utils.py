@@ -29,7 +29,7 @@ from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
 from paths import PathConfig
-from kerastuner.tuners import Hyperband
+from kerastuner.tuners import Hyperband, RandomSearch, GridSearch, BayesianOptimization
 from kerastuner import HyperParameters, Objective
 
 
@@ -609,6 +609,7 @@ class HyperParamTuning(PathConfig):
             tuning_type = kwargs.get('mlp_tuning_type')
         input_score = kwargs.get('fit_score')
         n_iter  = kwargs.get('n_iter', None)
+        max_trials = kwargs.get('max_trials', None)
 
         # get sklearn appropaite identifier for fit score
         fit_score = self.get_value(dict_name='rename_keys', key= input_score)
@@ -664,7 +665,7 @@ class HyperParamTuning(PathConfig):
             output_size = kwargs.get('output_size')
             n_features = kwargs.get('n_features')
 
-            best_estimator, tuner = self.mlp_hp_tuner(X, y, tuning_type, param_grid, fit_score,
+            best_estimator, tuner = self.mlp_hp_tuner(X, y, tuning_type, param_grid, fit_score, max_trials,
                                                       input_size, output_size,n_features)
 
             best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
@@ -712,7 +713,7 @@ class HyperParamTuning(PathConfig):
                 else:
                     os.remove(file_path)
 
-    def sk_native_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, n_iter = 1000):
+    def sk_native_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, n_iter: Union[int, None]):
         
         # Select type of hyperparameter tuning process to execute
         tuners = {'std': GridSearchCV,
@@ -760,7 +761,7 @@ class HyperParamTuning(PathConfig):
         
         return final_tune
     
-    def sk_run_tune(self, params: dict, fit_score: str, score_metrics: list, tuner, tuning_type = 'std', n_iter = 100):
+    def sk_run_tune(self, params: dict, fit_score: str, score_metrics: list, tuner, tuning_type: str, n_iter: Union[int, None]):
 
         if 'halv' in tuning_type:
             search = tuner(self.model, params, scoring = fit_score, n_jobs = -1, cv = 3, verbose = 2)
@@ -773,10 +774,10 @@ class HyperParamTuning(PathConfig):
 
         return search
     
-    def mlp_hp_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, 
+    def mlp_hp_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, max_trials: Union[int, None],
                      input_size: int, output_size: int, n_features: int):
 
-        #save dir
+        #save directory for tuning trials to be stored
         save_dir = os.path.join(self.model_savepath,self.model_name)
 
         #construct hyperparameter sample space to be explored by Keras tuner
@@ -796,16 +797,42 @@ class HyperParamTuning(PathConfig):
         build_net_partial = partial(self.build_net, input_size = input_size, 
                                     output_size = output_size, n_features = n_features)
 
-        tuner = Hyperband(
-            hypermodel = build_net_partial,
-            objective= Objective(fit_score,'min'),
-            hyperparameters= hp,
-            max_epochs = 10,
-            factor = 3,
-            directory = save_dir,
-            project_name = 'hyperparam_tune',
-            hyperband_iterations= 3 
-        )
+        # Select tuner from Keras tuner library
+
+        tuner_args = {
+            'hypermodel': build_net_partial,
+            'objective': Objective(fit_score, 'min'),
+            'max_trials': max_trials,
+            'hyperparameters': hp,
+            'directory': save_dir,
+            'project_name': 'hyperparam_tune'
+        }
+
+        if tuning_type == 'hyperband':
+            
+            # Include specific settings for hyperband tuner and remove max_trials
+            tuner_args.update({
+                'max_epochs' : 10,
+                'factor': 3,
+                'hyperband_iterations': 3
+            })
+            tuner_args.pop('max_trials')
+            
+            tuner = Hyperband(**tuner_args)
+
+        elif tuning_type == 'random':
+
+            tuner = RandomSearch(**tuner_args)
+
+        elif tuning_type == 'grid_search':
+            
+            tuner = GridSearch(**tuner_args)
+
+        elif tuning_type == 'bayesian':
+
+            tuner_args['beta'] = 5
+            
+            tuner = BayesianOptimization(**tuner_args)
 
         stop_early = EarlyStopping(monitor=fit_score, patience=10)
 
@@ -829,7 +856,7 @@ class HyperParamTuning(PathConfig):
         val_loss_per_epoch = history.history['val_loss']
         best_epoch = np.argmax(val_loss_per_epoch) + 1
 
-        self.print_verbose('Re-training the model with the optimal epochs and hps found')
+        self.print_verbose(f'Re-training the model with the optimal epochs ({best_epoch}) and hps found')
         
         #re-train the model with the optimal epoch found
         best_model = tuner.hypermodel.build(best_hps)

@@ -73,8 +73,9 @@ class Regressor(ABC,PathConfig):
                         'k': 5,
                         'earlystop_score': score},
                 'hp_tuning': {'sk_tuning_type': 'std',
-                              'mlp_tuning_type': 'hyperband',
+                              'mlp_tuning_type': 'bayesian',
                            'n_iter': 30,
+                           'max_trials': 10,
                            'fit_score': score},
                 'final_kf': {'cv_type': 'kfold',
                         'n_repeats': 3,
@@ -139,11 +140,17 @@ class Regressor(ABC,PathConfig):
     - 'min_k' 'max_k': Specified when k_sens is True to determine the extent of the K values to test
     - 'k': Specified when kfold cv_type is specified, determining the number of folds to run
 
-    Options for tuning_type:
+    Options for sk_tuning_type:
     - 'std': Standard GridSearchCV.
     - 'halving': HalvingGridSearchCV.
     - 'random': RandomizedSearchCV. (optional) n_iter can be specified to change the number of random runs to be performed
     - 'halve_random': Combining Halving and Random search hyperparameter tuning.
+
+    Options for mlp_tuning_type:
+    - 'hyperband': 
+    - 'bayesian': 
+    - 'random': 
+    - 'grid_search': 
 
     Options for fit_score:
     - 'mse': Mean Squared Error
@@ -184,6 +191,7 @@ class Regressor(ABC,PathConfig):
             # tuning arguments
             hptune_args = self.get_cvargs('hp_tuning', score=es_score)
 
+            # update hp tune args if the instance is MLP and network architecture info is needed
             if isinstance(self,MLP):
                 hptune_args['input_size'] = self.kwargs.get('input_size')
                 hptune_args['output_size'] = self.kwargs.get('output_size')
