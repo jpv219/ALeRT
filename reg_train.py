@@ -47,38 +47,54 @@ def main():
             data_packs.append(data_pack)
     
     # Model selection from user input
-    model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp_reg, mlp): ')
+    model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp_br, mlp): ')
+    
+    # Model configurer
+    m_config = ModelConfig()
     
     # selecting corresponding wrapper, hyperparams and model_name
-    wrapper_model = ModelConfig.get_wrapper(model_choice)
+    wrapper_model = m_config.get_wrapper(model_choice)
 
-    model_params = ModelConfig.get_hyperparameters(model_choice)
+    model_params = m_config.get_hyperparameters(model_choice)
 
-    model_name = ModelConfig.get_model_name(model_choice)
+    model_name = m_config.get_model_name(model_choice)
 
-    # Add input_size and output_size for MLP models and negate early kfold
-    if model_choice in ['mlp', 'mlp_reg']:
+    # Add input_size, output_size and n_features for MLP models and negate early kfold
+    if model_choice in ['mlp', 'mlp_br']:
         model_params['input_size'] = data_packs[0].shape[-1]
         model_params['output_size'] = data_packs[1].shape[-1]
-        skip_kfold = 'y'
+
+        # Count the number of individual features in the input data
+        features = data_packs[1].columns
+        unique_features = set()
+
+        for feat in features:
+            # split the column number from the feature name
+            name = feat.rsplit('_',1)[0]
+            unique_features.add(name)
+
+        n_features = len(unique_features)
+        model_params['n_features'] = n_features
+
+        do_kfold = 'n'
         ksens = 'n'
     
     # only ask for early kfold on sklearn native models
     else:
 
-        skip_kfold = input('Skip pre-Kfold cross validation? (y/n): ')
+        do_kfold = input('Perform pre-Kfold cross validation? (y/n): ')
     
         # Decide whether to do pre-kfold and include k sensitivity
-        if skip_kfold.lower() == 'n':
+        if do_kfold.lower() == 'y':
             ksens = input('Include K-sensitivity? (y/n): ')
         else:
             ksens = 'n'
     
-    skip_hp_tune = input('Skip hyperparameter tuning cross-validation? (y/n): ')
+    do_hp_tune = input('Perform hyperparameter tuning cross-validation? (y/n): ')
 
-    cv_options = {'skip_kfold': True if skip_kfold.lower() == 'y' else False,
+    cv_options = {'do_kfold': True if do_kfold.lower() == 'y' else False,
           'ksens' : True if ksens.lower() == 'y' else False,
-          'hp_tune': True if skip_hp_tune.lower() == 'y' else False}
+          'do_hp_tune': True if do_hp_tune.lower() == 'y' else False}
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)

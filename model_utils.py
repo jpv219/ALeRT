@@ -10,13 +10,11 @@ import pandas as pd
 import pickle
 import os
 import shutil
-import psutil
 from functools import partial
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
@@ -24,17 +22,15 @@ from sklearn.experimental import enable_halving_search_cv
 from sklearn.model_selection import HalvingGridSearchCV
 from sklearn.model_selection import HalvingRandomSearchCV
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from keras.models import Sequential
-from keras.layers import InputLayer, Dense
+from keras.metrics import R2Score
+from keras.models import Sequential, Model
+from keras.layers import InputLayer, Dense, Input, Concatenate, Reshape
 from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 import joblib
 from paths import PathConfig
-
-import ray
-from ray import train, tune
-from ray.tune.schedulers import ASHAScheduler
-from ray.air.integrations.keras import ReportCheckpointCallback
+from kerastuner.tuners import Hyperband, RandomSearch, GridSearch, BayesianOptimization
+from kerastuner import HyperParameters, Objective
 
 
 COLOR_MAP = cm.get_cmap('viridis', 30)
@@ -193,9 +189,9 @@ class KFoldCrossValidator(PathConfig):
     model_abbr_map = {'Decision_Tree':'dt', 
                     'XGBoost':'xgb', 
                     'Random_Forest': 'rf',
-                    'Support_Vector_Machine': 'rf',
+                    'Support_Vector_Machine': 'svm',
                     'K_Nearest_Neighbours': 'knn',
-                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'MLP_Branched_Network': 'mlp_br',
                     'Multi_Layer_Perceptron': 'mlp'}
     
     def __init__(self, model, name: str, native: str, k_sens = True, verbose = True):
@@ -532,36 +528,49 @@ class HyperParamTuning(PathConfig):
                 'subsample': [0.5,0.7, 1], 'colsample_bytree': [0.5, 0.7, 1.0],
                 'gamma': [0, 0.01, 0.05], 'lambda' : [0.001, 0.01, 0.05],
                 'alpha': [0.05, 0.1, 0.5]}, 
-        'rf': {'n_estimators': 100},
-        'svm': {'C': 1, 'epsilon': 0.1},
-        'knn': {'n_neighbours': 10},
-        'mlp_reg': {'n_dense' : tune.choice([2,4,6]),
-                'n_shallow': tune.choice([2,4,6]),
-                'n_nodes_d': tune.choice([128,256]),
-                'n_nodes_s': tune.choice([32,64]),
-                'n_epochs' : 100,
-                'batch_size' : tune.choice([1,5,10]),
-                'act_fn': tune.choice(['relu','sigmoid']),
-                'lr': tune.choice([0.005,0.01])},
-        'mlp': {'n_dense' : tune.choice([2,4,6]),
-                'n_shallow': tune.choice([2,4,6]),
-                'n_nodes_d': tune.choice([128,256]),
-                'n_nodes_s': tune.choice([32,64]),
-                'n_epochs' : tune.choice([100]),
-                'batch_size' : tune.choice([1,5,10]),
-                'act_fn': tune.choice(['relu','sigmoid']),
-                'lr': tune.choice([0.005,0.01])}
+        'rf': {'n_estimators': [100,200,400,600,800,1000],
+               'max_depth': [None, 10, 20, 40, 60],
+               'min_samples_split': [2,5,10,20],
+               'max_features': [1,'sqrt','log2'],
+               'min_samples_leaf': [1,2,4,8],
+               'bootstrap': [True,False]},
+        'svm': {'estimator__C': [0.01,0.1,1,10,50], 
+                'estimator__epsilon': [0.001,0.01,0.1],
+                'estimator__kernel': ['linear','poly','rbf','sigmoid'],
+                'estimator__gamma': ['scale','auto',0.001,0.01,0.1],
+                'estimator__degree': [2,3,4],
+                'estimator__coef0': [0,0.1,1]},
+        'knn': {'n_neighbors': [int(x) for x in range(1,12)],
+                'weights': ['uniform','distance'],
+                'p': [1,2,3],
+                'algorithm': ['auto','ball_tree','kd_tree','brute'],
+                'leaf_size': [10,30,50],
+                'metric': ['euclidean', 'minkowski','chebyshev']},
+        'mlp_br': {'n_nodes_1' : (64,512,32),
+                'n_nodes_2': (32,192,32),
+                'n_nodes_br': (32,256,32),
+                'act_fn': ['relu','sigmoid', 'tanh'],
+                'lr': [1e-2, 1e-3, 1e-4]},
+        'mlp': {'n_dense_layers' : (1,5,1), # when using tuples, the values specified are initial,final,step
+                'n_shallow_layers': (1,5,1),
+                'n_nodes_dense': (64,512,32),
+                'n_nodes_shallow': (32,128,32),
+                'act_fn': ['relu', 'sigmoid', 'tanh'],
+                'lr': [1e-2, 1e-3, 1e-4]}
     }
 
     key_regressor_params = {'dt': ['max_depth','min_samples_split'],
-                            'xgb': ['max_depth', 'min_child_weight', 'learning_rate']}
+                            'xgb': ['max_depth', 'min_child_weight', 'learning_rate'],
+                            'rf': ['n_estimators','max_depth','min_samples_split'],
+                            'svm': ['estimator__kernel','estimator__C','estimator__gamma'],
+                            'knn': ['n_neighbors', 'weights']}
 
     model_abbr_map = {'Decision_Tree':'dt', 
                     'XGBoost':'xgb', 
                     'Random_Forest': 'rf',
-                    'Support_Vector_Machine': 'rf',
+                    'Support_Vector_Machine': 'svm',
                     'K_Nearest_Neighbours': 'knn',
-                    'MLP_Wrapped_Regressor': 'mlp_reg',
+                    'MLP_Branched_Network': 'mlp_br',
                     'Multi_Layer_Perceptron': 'mlp'}
     
     rename_keys = {
@@ -569,7 +578,8 @@ class HyperParamTuning(PathConfig):
             'mae': 'neg_mean_absolute_error',
             'mse': 'neg_mean_squared_error',
             'variance': 'explained_variance',
-            'rmse': 'neg_root_mean_squared_error'
+            'rmse': 'neg_root_mean_squared_error',
+            'loss': 'loss'
         }
     
     
@@ -578,7 +588,7 @@ class HyperParamTuning(PathConfig):
         super().__init__()
         
         self.model_name = name
-        self.model_abbr = HyperParamTuning.model_abbr_map.get(name, None)
+        self.model_abbr = self.get_value(dict_name= 'model_abbr_map',key= name)
         self.native = native
         self.verbose = verbose
 
@@ -592,15 +602,20 @@ class HyperParamTuning(PathConfig):
         # Training data sets
         X, y = args[0], args[1]
 
-        # Optional kwargs depending on tuning cv call
-        tuning_type = kwargs.get('tuning_type')
-        input_score = kwargs.get('fit_score', 'mse')
-        n_iter  = kwargs.get('n_iter',None)
+        # Optional kwargs depending on tuning cv call and native model
+        if self.native == 'sk_native':
+            tuning_type = kwargs.get('sk_tuning_type')
+        else:
+            tuning_type = kwargs.get('mlp_tuning_type')
+        input_score = kwargs.get('fit_score')
+        n_iter  = kwargs.get('n_iter', None)
+        max_trials = kwargs.get('max_trials', None)
 
         # get sklearn appropaite identifier for fit score
-        fit_score = HyperParamTuning.rename_keys.get(input_score)
+        fit_score = self.get_value(dict_name='rename_keys', key= input_score)
+
         # get hyperparameter searcher
-        param_grid = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+        param_grid = self.get_value(dict_name='regressor_hp_search_space',key = self.model_abbr)
 
         # create/clean saving tune directory
         tune_save_dir = os.path.join(self.model_savepath,self.model_name,'hyperparam_tune')
@@ -645,11 +660,60 @@ class HyperParamTuning(PathConfig):
             self.print_verbose('-'*72)
         
         elif self.native == 'mlp':
-            best_estimator = self.mlp_hp_tuner(X, y)
 
+            input_size = kwargs.get('input_size')
+            output_size = kwargs.get('output_size')
+            n_features = kwargs.get('n_features')
+
+            best_estimator, tuner = self.mlp_hp_tuner(X, y, tuning_type, param_grid, fit_score, max_trials,
+                                                      input_size, output_size,n_features)
+
+            best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
+
+            # save best performing model and parameter detail to a txt file
+            with open(os.path.join(tune_save_dir,f'{self.model_abbr}_tune_summary.txt'), 'w') as file:
+                file.write(f'Results summary for top 5 cases during hyperparameter tuning search with {tuning_type} tuner' + '\n')
+                file.write('-'*72 + '\n')
+
+                for trial in tuner.oracle.get_best_trials(5):
+                    file.write(f'Trial ID: {trial.trial_id}' + '\n')
+                    file.write(f'Hyperparameters: {trial.hyperparameters.values}' + '\n')
+                    file.write(f'Score: {trial.score}' + '\n')
+                    file.write('-'*72 + '\n')
+
+                file.write('Best Parameters overall:' + '\n')
+                file.write('-'*72 + '\n')
+                for item in param_grid.keys():
+                    file.write(f'best {item}: {best_hps.get(item)}' + '\n')
+
+            self.print_verbose('-'*72)
+            tuner.results_summary()
+            self.print_verbose('-'*72)
+        
         return best_estimator
+    
+    def print_verbose(self, message):
+        if self.verbose:
+            print(message)
 
-    def sk_native_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, n_iter = 1000):
+    @staticmethod
+    def clean_dir(dir):
+        
+        # Create kfold run checkpoint folder
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+        # clean if previous files exist
+        else:
+            for filename in os.listdir(dir):
+                file_path = os.path.join(dir,filename)
+
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # Remove directory and its contents
+                else:
+                    os.remove(file_path)
+
+    def sk_native_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, n_iter: Union[int, None]):
         
         # Select type of hyperparameter tuning process to execute
         tuners = {'std': GridSearchCV,
@@ -667,7 +731,7 @@ class HyperParamTuning(PathConfig):
         score_metrics = ['explained_variance','r2','neg_mean_squared_error','neg_mean_absolute_error','neg_root_mean_squared_error']
 
         # First tuning run on most influential parameters
-        key_params = HyperParamTuning.key_regressor_params.get(self.model_abbr) 
+        key_params = self.get_value(dict_name = 'key_regressor_params',key = self.model_abbr)
         first_param_sweep = {key: param_grid[key] for key in key_params}
 
         self.print_verbose('-'*72)
@@ -697,7 +761,7 @@ class HyperParamTuning(PathConfig):
         
         return final_tune
     
-    def sk_run_tune(self, params: dict, fit_score: str, score_metrics: list, tuner, tuning_type = 'std', n_iter = 100):
+    def sk_run_tune(self, params: dict, fit_score: str, score_metrics: list, tuner, tuning_type: str, n_iter: Union[int, None]):
 
         if 'halv' in tuning_type:
             search = tuner(self.model, params, scoring = fit_score, n_jobs = -1, cv = 3, verbose = 2)
@@ -710,90 +774,131 @@ class HyperParamTuning(PathConfig):
 
         return search
     
-    def mlp_hp_tuner(self,X,y):
+    def mlp_hp_tuner(self, X: np.array, y: np.array, tuning_type: str, param_grid: dict, fit_score: str, max_trials: Union[int, None],
+                     input_size: int, output_size: int, n_features: int):
+
+        #save directory for tuning trials to be stored
+        save_dir = os.path.join(self.model_savepath,self.model_name)
+
+        #construct hyperparameter sample space to be explored by Keras tuner
+        hp = HyperParameters()
+
+        for param, values in param_grid.items():
+
+            # specific values in a list
+            if isinstance(values, list):
+                hp.Choice(param,values)
+
+            # values defined as a step-wise list
+            elif isinstance(values, tuple):
+                hp.Int(param,values[0],values[1],values[2])
+
+        # build network function set as partial to hand in data shape inputs
+        build_net_partial = partial(self.build_net, input_size = input_size, 
+                                    output_size = output_size, n_features = n_features)
+
+        # Select tuner from Keras tuner library
+
+        tuner_args = {
+            'hypermodel': build_net_partial,
+            'objective': Objective(fit_score, 'min'),
+            'max_trials': max_trials,
+            'hyperparameters': hp,
+            'directory': save_dir,
+            'project_name': 'hyperparam_tune'
+        }
+
+        if tuning_type == 'hyperband':
+            
+            # Include specific settings for hyperband tuner and remove max_trials
+            tuner_args.update({
+                'max_epochs' : 10,
+                'factor': 3,
+                'hyperband_iterations': 3
+            })
+            tuner_args.pop('max_trials')
+            
+            tuner = Hyperband(**tuner_args)
+
+        elif tuning_type == 'random':
+
+            tuner = RandomSearch(**tuner_args)
+
+        elif tuning_type == 'grid_search':
+            
+            tuner = GridSearch(**tuner_args)
+
+        elif tuning_type == 'bayesian':
+
+            tuner_args['beta'] = 5
+            
+            tuner = BayesianOptimization(**tuner_args)
+
+        stop_early = EarlyStopping(monitor=fit_score, patience=10)
+
+        # Perform the hyperparameter search
+        tuner.search(X, y, 
+                     validation_split=0.3, 
+                     epochs=50,
+                     shuffle=True,
+                     callbacks=[stop_early]
+                     )
+
+        # get best hyperparameters
+        best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
+
+        # Build the best model
+        model = tuner.hypermodel.build(best_hps)
+
+        # Train the best model and find the best performing epoch
+        history = model.fit(X, y, epochs=100, validation_split = 0.3, batch_size = 1)
+
+        val_loss_per_epoch = history.history['val_loss']
+        best_epoch = np.argmax(val_loss_per_epoch) + 1
+
+        self.print_verbose(f'Re-training the model with the optimal epochs ({best_epoch}) and hps found')
         
-        # limit the number of CPU cores used for the whole tuning process
-        percent_cpu_to_occupy = 0.4
-        total_cpus = psutil.cpu_count(logical=False)
-        num_cpus_to_allocate = int(total_cpus * percent_cpu_to_occupy)
+        #re-train the model with the optimal epoch found
+        best_model = tuner.hypermodel.build(best_hps)
 
-        # search space
-        search_space = HyperParamTuning.regressor_hp_search_space.get(self.model_abbr)
+        best_model.fit(X, y, epochs=best_epoch, validation_split = 0.3, batch_size = 1, callbacks = [stop_early])
 
-        # add data sizes for network build
-        search_space['input_size'] = tune.choice([X.shape[-1]])
-        search_space['output_size'] = tune.choice([y.shape[-1]])
+        return best_model, tuner
 
-        # Configure and run RAY TUNING 
-        scheduler = ASHAScheduler(
-        metric='val_loss',
-        mode='min',
-        time_attr= "training_iteration",
-        max_t= 50,
-        grace_period=20 # save period without early stopping
-        )
+    def build_net(self, hp, input_size, output_size, n_features):
+        """
+        Build network model for hyperparameters tuning
 
-        num_samples = 10
-
-        tuner = tune.Tuner(
-                        tune.with_resources(partial(self.mlp_run_tune, X,y), resources={'cpu':num_cpus_to_allocate,'gpu': 0}),
-                        tune_config= tune.TuneConfig(
-                        metric = 'val_loss',
-                        mode = 'min',
-                        scheduler=scheduler,
-                        num_samples=num_samples,),
-                        run_config= train.RunConfig(
-                            name= 'exp',
-                            stop = {'val_loss':1e-5},
-                        ),
-                        param_space= search_space,
-                        )
-        results = tuner.fit()
+        hp: HyperParameters class instance
+        """
+        lr = hp.get('lr')
         
-        best_trial = results.get_best_result()
+        if self.model_abbr == 'mlp':
+            net = self.mlp(hp,input_size,output_size)
+        else:
+            net = self.mlp_branched(hp,input_size,output_size, n_features)
 
-        ray.shutdown()
+        # Network training utilities
+        optimizer = Adam(learning_rate=lr)
 
-        print(f'Finished tuning with {num_samples} samples')
-        print(f'Best trial hyperparameters: {best_trial.config}')
+        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mae', 'mse', R2Score()])
 
-        return best_trial
-
-    def mlp_run_tune(self,X,y,config):
-        
-        X_train,y_train,X_val,y_val = train_test_split(X,y, test_size=0.3)
-        
-        # construct network
-        mlp = self.build_net(**config)
-
-        batch_size = config['batch_size']
-        stopper = EarlyStopping(monitor='val_loss', patience=10)
-        checkpoint = ReportCheckpointCallback(metrics={'val_loss': 'loss'})
-
-        mlp.fit(X_train,y_train,validation_data = (X_val, y_val), 
-                batch_size = batch_size, epochs=50, verbose=1, 
-                callbacks = [stopper,checkpoint])
-
+        return net
 
     @staticmethod
-    def build_net(**kwargs):
+    def mlp(hp, input_size, output_size):
         
         net = Sequential()
         
         #Hyperparams
-        n_dense_layers = kwargs.get('n_dense')
-        n_shallow_layers = kwargs.get('n_shallow')
-        n_nodes_dense = kwargs.get('n_nodes_d')
-        n_nodes_shallow = kwargs.get('n_nodes_s')
-        act_fn = kwargs.get('act_fn')
-        lr = kwargs.get('lr')
-
-        # Feature dimensions
-        input_shape = kwargs.get('input_size',None)
-        output_shape = kwargs.get('output_size', None)
+        n_dense_layers = hp.get('n_dense_layers')
+        n_shallow_layers = hp.get('n_shallow_layers')
+        n_nodes_dense = hp.get('n_nodes_dense')
+        n_nodes_shallow = hp.get('n_nodes_shallow')
+        act_fn = hp.get('act_fn')
 
         # Input layer
-        net.add(InputLayer(shape=(input_shape,)))
+        net.add(InputLayer(shape=(input_size,)))
 
         # Dense layers, with more nodes per layer
         for _ in range(n_dense_layers):
@@ -804,35 +909,56 @@ class HyperParamTuning(PathConfig):
             net.add(Dense(n_nodes_shallow,activation=act_fn))
 
         # Output layer
-        net.add(Dense(output_shape,activation=act_fn))
-
-        # Network training utilities
-        optimizer = Adam(learning_rate=lr)
-
-        net.compile(optimizer= optimizer, loss = 'mean_squared_error', metrics = ['mse'])
+        net.add(Dense(output_size,activation='linear'))
 
         return net
 
-    def print_verbose(self, message):
-        if self.verbose:
-            print(message)
-
     @staticmethod
-    def clean_dir(dir):
+    def mlp_branched(hp, input_size, output_size, n_features):
+
+        #Hyperparams
+        n_nodes_1 = hp.get('n_nodes_1')
+        n_nodes_2 = hp.get('n_nodes_2')
+        n_nodes_br = hp.get('n_nodes_br')
+        act_fn = hp.get('act_fn')
         
-        # Create kfold run checkpoint folder
-        if not os.path.exists(dir):
-            os.makedirs(dir)
+        inputs = Input(shape=(input_size,))
 
-        # clean if previous files exist
-        else:
-            for filename in os.listdir(dir):
-                file_path = os.path.join(dir,filename)
+        # hidden layers for processing inputs
+        hidden1 = Dense(n_nodes_1, activation=act_fn)(inputs)
+        hidden2 = Dense(n_nodes_2, activation= act_fn)(hidden1)
 
-                if os.path.isdir(file_path):
-                    shutil.rmtree(file_path)  # Remove directory and its contents
-                else:
-                    os.remove(file_path)
+        #construct branches for each feature and connect to output
+        outputs = []
+
+        for _ in range(n_features):
+
+            branch_hidden = Dense(n_nodes_br, activation= act_fn) (hidden2)
+            branch_out = Dense(100, activation= 'linear')(branch_hidden)
+            outputs.append(branch_out)
+
+        concatenated = Concatenate()(outputs)
+
+        reshaped_out = Reshape((output_size,))(concatenated)
+
+        net = Model(inputs = inputs, outputs = reshaped_out)
+
+        return net
+    
+    @classmethod
+    def get_value(cls, dict_name : str, key: str):
+
+        # check if dictionary exists
+        if not hasattr(cls, dict_name):
+            raise ValueError(f'Dictionary {dict_name} does not exist in {cls.__name__}')
+        
+        # Retrive class dictionary
+        dictionary = getattr(cls, dict_name)
+
+        if key not in dictionary:
+            raise KeyError(f'Key {key} specified does not exist in dictionary {dict_name}')
+        
+        return dictionary.get(key)
 
 
 ########################### MODEL EVALUATION ##############################################
@@ -882,6 +1008,7 @@ class ModelEvaluator(PathConfig):
         return y_pred_inv
     
     def predict(self,X_df,y_target_df):
+
         X = X_df.to_numpy()
         y_pred = self.model.predict(X)
 
