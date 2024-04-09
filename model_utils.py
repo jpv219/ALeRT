@@ -240,6 +240,7 @@ class KFoldCrossValidator(PathConfig):
             raise ValueError('Kfold cross validator type not specified or not supported, cv_type = str must be included in cross_validator call')
             
         # Initialize early stopping logic
+        ## reminder: es_score is loss for mlp and mse for sk_native
         early_stopper = KFoldEarlyStopping(es_score, patience= 5, delta= 0.001, verbose = True)
 
         # run either a full k sensitivity cross validation or single kfold instance for a given k
@@ -309,6 +310,7 @@ class KFoldCrossValidator(PathConfig):
             cv = cv_class(n_splits = k)
 
             # call native cv run instance
+            ## return a dictionary with min, max, mean for each metric
             kfold_results = cv_wrapper(X, y, cv, k)
 
             # Update overall results with k-fold cv instance results
@@ -407,6 +409,7 @@ class KFoldCrossValidator(PathConfig):
         self.clean_dir(checkpoint_dir)
 
         # Loop over CV kfold repeats and extract average values per kfold run instance
+        ## 'split' to generate indices to split data into traning and test set 
         for fold_idx, (train, test) in enumerate(cv.split(X,y)):
             
             self.print_verbose(f'Currently on fold {fold_idx} from k = {k} kfold run ...')
@@ -419,6 +422,9 @@ class KFoldCrossValidator(PathConfig):
             callbacks_list = [checkpoint,early_stopping]
 
             # Fit network with CV split train, val sets and call checkpoint callback
+            ## pass validaton for monitoring validation loss and metrics at the end of each epoch
+            ## the returned history holds a record of the loss values and metric value during training (loss and val_loss)
+            ## callbacks are used to perform tasks: saving model checkpoint and early stopping (can be logging traning metrics as well)
             history = self.model.fit(X[train],y[train], 
                             validation_data=(X[test], y[test]), epochs = 50, batch_size = 1,
                             callbacks=callbacks_list,verbose=0)
@@ -431,6 +437,7 @@ class KFoldCrossValidator(PathConfig):
             self.model.load_weights(latest_checkpoint)
 
             # Evaluate model fit on validation set according to Kfold split
+            ## the retured cores are specified when compiling the model
             scores = self.model.evaluate(X[test], y[test], verbose=0)
 
             # Update best val_loss obtained from all repeats in the present kfold run

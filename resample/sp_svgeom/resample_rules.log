@@ -1,0 +1,32 @@
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) > -0.24) and (Inclination > 0.469) and (Clearance (m) > 0.199) | MSE: 0.7025
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) > 0.148) and (Nblades > 0.285) and (Frequency (1/s) > -0.289) | MSE: 0.6628
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination > 0.397) and (Impeller_Diameter (m) <= -0.754) and (Frequency (1/s) <= 0.414) | MSE: 0.6374
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) <= 0.168) and (Nblades <= 0.608) and (Clearance (m) <= -0.128) | MSE: 0.6324
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) <= 0.168) and (Nblades <= 0.608) and (Clearance (m) > -0.128) | MSE: 0.6236
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination > 0.397) and (Impeller_Diameter (m) > -0.754) and (Nblades > -0.123) | MSE: 0.5945
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) <= 0.168) and (Nblades > 0.608) and (Impeller_Diameter (m) > -0.366) | MSE: 0.5882
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) <= 0.168) and (Nblades > 0.608) and (Impeller_Diameter (m) <= -0.366) | MSE: 0.5808
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination <= 0.397) and (Clearance (m) > -0.397) and (Clearance (m) > 0.274) | MSE: 0.4973
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) > 0.168) and (Inclination > 0.567) and (Nblades <= 0.877) | MSE: 0.4867
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) <= 0.148) and (Re <= 0.325) and (Clearance (m) > -0.791) | MSE: 0.4861
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) > -0.24) and (Inclination > 0.469) and (Clearance (m) <= 0.199) | MSE: 0.4779
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) <= 0.148) and (Re > 0.325) and (Blade_width (m) <= -0.876) | MSE: 0.4755
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination > 0.397) and (Impeller_Diameter (m) <= -0.754) and (Frequency (1/s) > 0.414) | MSE: 0.4691
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination <= 0.397) and (Clearance (m) > -0.397) and (Clearance (m) <= 0.274) | MSE: 0.4108
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) <= 0.148) and (Re > 0.325) and (Blade_width (m) > -0.876) | MSE: 0.3915
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) > 0.168) and (Inclination <= 0.567) and (Frequency (1/s) <= 0.589) | MSE: 0.3858
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) > 0.168) and (Inclination > 0.567) and (Nblades > 0.877) | MSE: 0.3741
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) > -0.731) and (Blade_width (m) > 0.168) and (Inclination <= 0.567) and (Frequency (1/s) > 0.589) | MSE: 0.3207
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) > 0.148) and (Nblades <= 0.285) and (Blade_width (m) > -0.959) | MSE: 0.3146
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) > 0.148) and (Nblades <= 0.285) and (Blade_width (m) <= -0.959) | MSE: 0.2977
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) <= -0.24) and (Nblades <= 0.055) and (Nblades > -0.676) | MSE: 0.2476
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) <= -0.24) and (Nblades > 0.055) and (Nblades > 0.608) | MSE: 0.1944
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) <= -0.24) and (Nblades <= 0.055) and (Nblades <= -0.676) | MSE: 0.1656
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) <= 0.148) and (Re <= 0.325) and (Clearance (m) <= -0.791) | MSE: -0.0
+splitting rules: (Impeller_Diameter (m) > -0.511) and (Blade_width (m) <= -0.731) and (Clearance (m) > 0.148) and (Nblades > 0.285) and (Frequency (1/s) <= -0.289) | MSE: -0.0
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination > 0.397) and (Impeller_Diameter (m) > -0.754) and (Nblades <= -0.123) | MSE: -0.0
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination <= 0.397) and (Clearance (m) <= -0.397) and (Nblades > 0.731) | MSE: -0.0
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) > -0.457) and (Inclination <= 0.397) and (Clearance (m) <= -0.397) and (Nblades <= 0.731) | MSE: 0.0
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) > -0.24) and (Inclination <= 0.469) and (Blade_width (m) > -0.652) | MSE: -0.0
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) > -0.24) and (Inclination <= 0.469) and (Blade_width (m) <= -0.652) | MSE: 0.0
+splitting rules: (Impeller_Diameter (m) <= -0.511) and (Blade_width (m) <= -0.457) and (Clearance (m) <= -0.24) and (Nblades > 0.055) and (Nblades <= 0.608) | MSE: 0.0

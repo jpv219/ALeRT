@@ -11,6 +11,7 @@ import ast
 import os
 import pickle
 from paths import PathConfig
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler,RobustScaler,PowerTransformer,QuantileTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
@@ -30,7 +31,17 @@ class LogScaler:
         log_modulus_X = np.sign(X) * np.log(np.abs(X)+1) / self.log_base
         return log_modulus_X
     
-    def fit_transform(self,X):
+    def inverse_transform(self, X):
+        # inverse scaling using the logarithm with a specified base
+        inverse_X = X * self.log_base
+        # invserse operation to compute absolute value and sign
+        sign_X = np.sign(inverse_X)
+        abs_log_X = np.exp(np.abs(inverse_X)) - 1
+        # inverse operation to compute the original value
+        inverse_transformed_X = sign_X * abs_log_X
+        return inverse_transformed_X
+    
+    def fit_transform(self, X, y=None, **fit_params):
         self.fit(X)
         return self.transform(X)
 
@@ -186,8 +197,7 @@ class DataProcessor(PathConfig):
 
         return X_minmax, y_minmax, X_filtered, y_filtered
 
-    @staticmethod
-    def apply_scaling(scaler, data_pack: list) -> list:
+    def apply_scaling(self, scaler, data_pack: list) -> list:
         
         scaled_data = []
         # laying out the input datapacks to further update with their scaled values
@@ -205,6 +215,10 @@ class DataProcessor(PathConfig):
                         flat_list = [ele_val for ele in df[column] for ele_val in ele]
                         flat_arr = np.array(flat_list).reshape(-1,1)
                         scaler.fit(flat_arr)
+                        # Save the scaler for later inverse transformation
+                        with open(os.path.join(self.input_savepath,self._case,'scaler_pipeline.pkl'),'wb') as f:
+                            pickle.dump(scaler,f)
+
                         df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
                         # reshaping back to a 1D list
                         df[column] = df[column].apply(lambda x: x.reshape(-1,))
@@ -241,19 +255,19 @@ class DataProcessor(PathConfig):
                    'power': PowerTransformer(),
                    'quantile': QuantileTransformer(output_distribution='normal')}
         
-        # If the scaling is not norm, perform the scaling first prior to minmixscaling
+        # create a pipeline with the scaler and/or MinMaxScaler
         if scaling != 'norm':
-            # Select the scaler based on user choice
-            scaler = scalers.get(scaling)
-            scaled_data = self.apply_scaling(scaler, data_pack)
-
-        # if the scaling is norm, skip all the scaling above
+            scaling_pipeline = Pipeline([
+                (scaling, scalers.get(scaling)),
+                ('minmax', MinMaxScaler(feature_range=(-1,1)))
+            ])
         else:
-            scaled_data = data_pack
+            scaling_pipeline = Pipeline([
+                ('minmax', MinMaxScaler(feature_range=(-1,1)))
+            ])
         
-        # All scalings have to finish with a minmaxscaling
-        norm_scaler = MinMaxScaler(feature_range=(-1,1))
-        mmscaled_data = self.apply_scaling(norm_scaler, scaled_data)
+        scaler = scaling_pipeline
+        mmscaled_data = self.apply_scaling(scaler, data_pack)
  
         return mmscaled_data
     
