@@ -205,7 +205,7 @@ class DataProcessor(PathConfig):
                         flat_list = [ele_val for ele in df[column] for ele_val in ele]
                         flat_arr = np.array(flat_list).reshape(-1,1)
                         scaler.fit(flat_arr)
-                        df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
+                        df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))
                         # reshaping back to a 1D list
                         df[column] = df[column].apply(lambda x: x.reshape(-1,))
                     else:
