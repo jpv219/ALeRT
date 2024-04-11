@@ -42,3 +42,7 @@ class PathConfig:
     @property
     def model_savepath(self):
         return self._config['Path']['models']
+    
+    @property
+    def bestmodel_savepath(self):
+        return self._config['Path']['best']

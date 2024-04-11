@@ -33,7 +33,7 @@ def main():
     else:
         pca = False
     
-    # Save only train and test packs
+    # Save only train and test packs: [X,y train, X,y test and X,y random]
     label_package =  [item for item in label_package if item not in ['full', 'PCA_info']]
     
     # Load pickle files
@@ -63,6 +63,7 @@ def main():
     if model_choice in ['mlp', 'mlp_br']:
         model_params['input_size'] = data_packs[0].shape[-1]
         model_params['output_size'] = data_packs[1].shape[-1]
+        is_mlp = True
 
         # Count the number of individual features in the input data
         features = data_packs[1].columns
@@ -89,6 +90,8 @@ def main():
             ksens = input('Include K-sensitivity? (y/n): ')
         else:
             ksens = 'n'
+
+        is_mlp = False
     
     do_hp_tune = input('Perform hyperparameter tuning cross-validation? (y/n): ')
 
@@ -105,6 +108,15 @@ def main():
     # Regression training and evaluation
     tuned_model = model_instance.model_train(data_packs, model, 
                                         cv_options, model_name)
+    
+    print('-'*72)
+    print('-'*72)
+    print(f'Saving {model_name} best model...')
+    
+    # Save best perfoming trained model based on model_train cross_validation filters and steps selected by the user
+    best_model_path = os.path.join(path.bestmodel_savepath, model_name)
+    model_instance.save_model(tuned_model,best_model_path,is_mlp)
+
     # Calling model evaluate with tuned model
     model_instance.model_evaluate(tuned_model, data_packs,case,pca)
 

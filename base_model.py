@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from keras.optimizers import Adam
 import tensorflow as tf
 import numpy as np
+import os
 #Model metrics and utilities
 from model_utils import KFoldCrossValidator, HyperParamTuning, ModelEvaluator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -54,7 +55,23 @@ class Regressor(ABC,PathConfig):
             return tf.keras.models.load_model(model_dir)
         else:
             return joblib.load(model_dir)
-    
+
+    @staticmethod
+    def save_model(model, model_dir: str, is_mlp: bool):
+        """
+        Save the model based on whether it's an MLP model or not.
+
+        Parameters:
+        - model: model state to save
+        - model_dir (str): Directory where the model will be saved.
+        - is_mlp (bool): Flag indicating whether the model is an MLP model or not.
+
+        """
+        if is_mlp:
+            model.save(os.path.join(model_dir, 'best_model.keras'))
+        else:
+            joblib.dump(model, os.path.join(model_dir, 'best_model.pkl'))
+
     @staticmethod
     def get_cvargs(cv: str, score: str) -> dict:
         """

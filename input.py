@@ -372,6 +372,19 @@ class DataPackager(PathConfig):
     def __init__(self,case):
         super().__init__()
         self._case = case
+
+    def expand_targets(self, target_df: pd.DataFrame) -> pd.DataFrame:
+        
+        expanded_df = pd.DataFrame()
+    
+        # Expand y_test arrays into separate columns for further regression eval
+        for column in target_df.select_dtypes(include=object).columns:
+            df = target_df[column].apply(pd.Series)
+            df.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df.columns))]
+
+            expanded_df = pd.concat([expanded_df,df], axis=1)
+        
+        return expanded_df
     
     def package_data(self,data_pack,labels):
 
@@ -460,23 +473,20 @@ def main():
     dt_processor.plot_scaling(X_df,X_scaled[-1],X_scaled[1],data_label='inputs')
     dt_processor.plot_scaling(y_df,y_scaled[-1],y_scaled[1],data_label='outputs')
 
-    # train test splitting with filtered datapack
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.25, random_state=2024)
+    # Case splitting for sampling comparison, setting an initial set to train with and explore: AL vs. Random
+    X_ini, X_random, y_ini, y_random = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.2, random_state=2024)
+    
+    # train test splitting with filtered datapack from the initial dataset to be used
+    X_train, X_test, y_train, y_test = train_test_split(X_ini, y_ini, test_size=0.25, random_state=2024)
 
-    # recombine filtered minmax cases intro training data pack
+    # recombine filtered minmax cases into initial training data pack
     combine_choice = input('Include the filtered cases into training? (y/n):')
     if combine_choice.lower() == 'y':
         X_train = pd.concat([X_train,X_scaled[1]],axis=0)
         y_train = pd.concat([y_train,y_scaled[1]],axis=0)
 
-    y_test_exp = pd.DataFrame()
-    
     # Expand y_test arrays into separate columns for further regression eval
-    for column in y_test.select_dtypes(include=object).columns:
-        df = y_test[column].apply(pd.Series)
-        df.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df.columns))]
-
-        y_test_exp = pd.concat([y_test_exp,df], axis=1)
+    y_test_exp = dt_packager.expand_targets(y_test)
 
     pca_choice = input('Carry out dimensionality reduction through PCA? (y/n): ')
 
@@ -486,28 +496,26 @@ def main():
         var_ratio = 0.95
         y_train_reduced, pca_info_df = dt_processor.PCA_reduction(y_train,var_ratio)
 
+        y_random_reduced, pca_info_reduced = dt_processor.PCA_reduction(y_random, var_ratio)
+
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_info_df]
-        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info']
+        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_info_df, X_random, y_random_reduced,pca_info_reduced]
+        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info','X_random', 'y_random','PCA_reduced']
 
     else:
 
         # Expand y_train and test columns containing arrays to individual columns per feature value for correct handling by regressor
-        y_train_exp = pd.DataFrame()
+        y_train_exp = dt_packager.expand_targets(y_train)
 
-        # targeting only columns with arrays as dtype=objects
-        for column in y_train.select_dtypes(include=object).columns:
-            df = y_train[column].apply(pd.Series)
-            df.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df.columns))]
-
-            y_train_exp = pd.concat([y_train_exp,df], axis=1)
+        # Expand targets for random dataset split for further model train and eval
+        y_random_exp = dt_packager.expand_targets(y_random)
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_exp,X_test,y_test_exp]
-        labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i']
+        data_pack = [df,X_train,y_train_exp,X_test,y_test_exp, X_random, y_random_exp]
+        labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i', 'X_random', 'y_random']
     
+    # Package initial data sets
     dt_packager.package_data(data_pack,labels)
-
 
 
 if __name__ == "__main__":
