@@ -51,6 +51,9 @@ class Regressor(ABC,PathConfig):
     Returns:
     - Loaded model object.
     """
+        if not os.path.exists(model_dir):
+            raise FileNotFoundError(f"Model state at '{model_dir}' does not exist.")
+        
         if is_mlp:
             return tf.keras.models.load_model(model_dir)
         else:
@@ -67,6 +70,10 @@ class Regressor(ABC,PathConfig):
         - is_mlp (bool): Flag indicating whether the model is an MLP model or not.
 
         """
+        
+        if not os.path.exists(model_dir):
+            raise FileNotFoundError(f"Model directory '{model_dir}' does not exist.")
+        
         if is_mlp:
             model.save(os.path.join(model_dir, 'best_model.keras'))
         else:
