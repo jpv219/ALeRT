@@ -11,41 +11,78 @@ from paths import PathConfig
 import pandas as pd
 from model_lib import ModelConfig
 
-def main():
+# Global paths configuration
+PATH = PathConfig()
+####
 
-    # Load data to process
-    path = PathConfig()
+def check_pca(label_package):
+    # Checking in PCA has been applied to the dataset
+    if 'PCA_info' in label_package:
+        pca = True
+    else:
+        pca = False
+    
+    return pca
 
-    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
+def load_packs(dir):
+    
     label_package = []
     data_packs = []
 
+    labelfile_dir = os.path.join(dir,'Load_Labels.txt')
+    
     # Read package names generated at input.py to later import
-    with open(os.path.join(path.input_savepath,case,'Load_Labels.txt'), 'r') as file:
+    with open(labelfile_dir, 'r') as file:
         lines = file.readlines()
 
         for line in lines:
             label_package.append(line.split('\n')[0])
 
-    # Save only train, test and random split packs
+    pca = check_pca(label_package)
+    
+    # Save only train, test packs
     label_package = [item for item in label_package if item not in ['full', 'PCA_info']]
     
     # Load pickle files
     for label in label_package:
 
-        data_path = os.path.join(path.input_savepath,case,f'{label}.pkl')
+        data_path = os.path.join(dir,f'{label}.pkl')
 
         if os.path.exists(data_path):
 
             data_pack = pd.read_pickle(data_path)          
             data_packs.append(data_pack)
+    
+    return data_packs, pca
+        
+def augment_data(case, data_sample : str):
+
+    data_aug_dir = os.path.join(PATH.resample_savepath, case, data_sample)
+    ini_data_dir = os.path.join(PATH.input_savepath, case, 'ini')
+
+    aug_packs,_ = load_packs(data_aug_dir)
+    ini_packs,pca = load_packs(ini_data_dir)
 
     # Augment training data with loaded sampled data
-    X_train_aug = pd.concat([data_packs[0],data_packs[4]], ignore_index= True)
-    y_train_aug = pd.concat([data_packs[1],data_packs[5]], ignore_index= True)
+    X_train_aug = pd.concat([ini_packs[0],aug_packs[0]], ignore_index= True)
+    y_train_aug = pd.concat([ini_packs[1],aug_packs[1]], ignore_index= True)
 
-    model_choice = input('Select trained model to load and deploy: (dt, xgb, rf, svm, knn, mlp_br, mlp): ')
+    # Returning the newly augmented training sets and the original testing sets split in input.py
+    data_packs = [X_train_aug, y_train_aug,ini_packs[2],ini_packs[3]]
 
+    return data_packs, pca
+
+def main():
+
+    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
+
+    model_choice = input('Select a trained model to load and deploy (dt, xgb, rf, svm, knn, mlp_br, mlp): ')
+
+    data_choice = input('Select the dataset sample to augment (random, dt, gsx): ')
+
+    # augment dataset with selected sample data
+    data_packs,pca = augment_data(case, data_choice)
+    
     # Model configurer
     m_config = ModelConfig()
     
@@ -56,7 +93,7 @@ def main():
 
     if model_choice in ['mlp', 'mlp_br']:
         is_mlp = True
-        best_model_path = os.path.join(path.bestmodel_savepath, model_name,'best_model.keras')
+        best_model_path = os.path.join(PATH.bestmodel_savepath, model_name,'best_model.keras')
 
         model_params['input_size'] = data_packs[0].shape[-1]
         model_params['output_size'] = data_packs[1].shape[-1]
@@ -75,7 +112,7 @@ def main():
 
     else:
         is_mlp = False
-        best_model_path = os.path.join(path.bestmodel_savepath, model_name,'best_model.pkl')
+        best_model_path = os.path.join(PATH.bestmodel_savepath, model_name,'best_model.pkl')
 
     # Instantiating the wrapper with the corresponding hyperparams
     model_instance = wrapper_model(**model_params)
@@ -88,12 +125,12 @@ def main():
           'ksens' : False,
           'do_hp_tune': False}
     
-    re_trained_model = model_instance.model_train([X_train_aug,y_train_aug], best_model,
+    re_trained_model = model_instance.model_train(data_packs, best_model,
                                cv_options, model_name)
     
     # Calling model evaluate with tuned model
-    model_instance.model_evaluate(re_trained_model, [X_train_aug,y_train_aug,data_packs[2],data_packs[3]],
-                                  case,pca=False)
+    model_instance.model_evaluate(re_trained_model, data_packs,
+                                  case,pca, data_choice)
     
 
 if __name__ == "__main__":

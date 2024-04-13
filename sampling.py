@@ -113,7 +113,7 @@ def main():
     data_packs = []
 
     # Read package names to later import
-    with open(os.path.join(path.input_savepath,case,'Load_Labels.txt'), 'r') as file:
+    with open(os.path.join(path.input_savepath,case,'ini','Load_Labels.txt'), 'r') as file:
         lines = file.readlines()
 
         for line in lines:
@@ -125,7 +125,7 @@ def main():
     # Load pickle files
     for label in label_package:
 
-        data_path = os.path.join(path.input_savepath,case,f'{label}.pkl')
+        data_path = os.path.join(path.input_savepath,case,'ini',f'{label}.pkl')
 
         if os.path.exists(data_path):
 

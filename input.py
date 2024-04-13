@@ -507,7 +507,7 @@ def main():
         labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info']
 
         random_pack = [X_random, y_random_reduced,pca_info_reduced]
-        random_labels = ['X_random', 'y_random','PCA_reduced']
+        random_labels = ['X_random', 'y_random','PCA_info']
 
     else:
 
