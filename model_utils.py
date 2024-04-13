@@ -972,12 +972,13 @@ class HyperParamTuning(PathConfig):
                     
 class ModelEvaluator(PathConfig):
 
-    def __init__(self, model, data_packs: list,case,pca):
+    def __init__(self, model, data_packs: list,case: str, pca:bool, datasample: str):
         super().__init__()
 
         self.model = model
         self._case = case
         self.pca = pca
+        self.datasample = datasample
 
         # Reading data packs for model fit and eval
         self.X_train_df, self.y_train_df, self.X_test_df, self.y_test_df = data_packs[:4]
@@ -997,7 +998,7 @@ class ModelEvaluator(PathConfig):
         
         # load the saved pca components for each feature
         for feature in pca_features:
-            with open(os.path.join(self.pca_savepath, self._case, f'pca_model_{feature}.pkl'), 'rb') as f:
+            with open(os.path.join(self.pca_savepath, self._case, self.datasample, f'pca_model_{feature}.pkl'), 'rb') as f:
                 pca_compnts_per_feat = pickle.load(f)
 
             # extract all the columns related one feature

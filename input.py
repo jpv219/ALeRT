@@ -313,7 +313,7 @@ class DataProcessor(PathConfig):
         fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{data_label}'),dpi=200)
         plt.show()
     
-    def PCA_reduction(self,df,var_ratio):
+    def PCA_reduction(self,df,var_ratio, datasample: str):
     
         # Empty Dataframe for PCs results and principal axes
         pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var']
@@ -331,7 +331,7 @@ class DataProcessor(PathConfig):
             pca = PCA(n_components=var_ratio)
             pca_arr = pca.fit_transform(df_exp) #fit PCA and apply reduction
             # Save the transform for later (reverse pca)
-            with open(os.path.join(self.pca_savepath, self._case, f'pca_model_{column}.pkl'), 'wb') as f:
+            with open(os.path.join(self.pca_savepath, self._case,datasample, f'pca_model_{column}.pkl'), 'wb') as f:
                 pickle.dump(pca,f)
             n_pcs = pca.n_components_ # number of components extracted for the values expanded from feature 'column'
 
@@ -386,28 +386,32 @@ class DataPackager(PathConfig):
         
         return expanded_df
     
-    def package_data(self,data_pack,labels):
+    def package_data(self,data_pack,labels,datasample: str):
 
+        if datasample == 'ini':
+            data_dir = self.input_savepath
+        elif datasample == 'random':
+            data_dir = self.resample_savepath
+        
         #Create the folder to store input datasets
         try:
-            os.mkdir(os.path.join(self.input_savepath,self._case))
+            os.mkdir(os.path.join(data_dir,self._case, datasample))
         except:
             pass
         
-        # Storing datasets with corresponding labelss
+        # Storing datasets with corresponding labels
         for data, label in zip(data_pack,labels):
 
-            with open(os.path.join(self.input_savepath,self._case,f'{label}.pkl'),'wb') as file:
+            with open(os.path.join(data_dir,self._case,datasample,f'{label}.pkl'),'wb') as file:
                 pickle.dump(data,file)
 
             print(f'Data packet {label} saved successfully')
         
         # Saving package labels to load later
-        with open(os.path.join(self.input_savepath,self._case,'Load_Labels.txt'), 'w') as file:
+        with open(os.path.join(data_dir,self._case,datasample,'Load_Labels.txt'), 'w') as file:
                 for label in labels:
                     file.write(label + '\n')
             
-
 def main():
     
     case_name = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
@@ -494,13 +498,16 @@ def main():
 
         # Carry out PCA on scaled outputs for training only
         var_ratio = 0.95
-        y_train_reduced, pca_info_df = dt_processor.PCA_reduction(y_train,var_ratio)
+        y_train_reduced, pca_info_df = dt_processor.PCA_reduction(y_train,var_ratio, datasample='ini')
 
-        y_random_reduced, pca_info_reduced = dt_processor.PCA_reduction(y_random, var_ratio)
+        y_random_reduced, pca_info_reduced = dt_processor.PCA_reduction(y_random, var_ratio,datasample='random')
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_info_df, X_random, y_random_reduced,pca_info_reduced]
-        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info','X_random', 'y_random','PCA_reduced']
+        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_info_df]
+        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info']
+
+        random_pack = [X_random, y_random_reduced,pca_info_reduced]
+        random_labels = ['X_random', 'y_random','PCA_reduced']
 
     else:
 
@@ -511,11 +518,17 @@ def main():
         y_random_exp = dt_packager.expand_targets(y_random)
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_exp,X_test,y_test_exp, X_random, y_random_exp]
-        labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i', 'X_random', 'y_random']
+        data_pack = [df,X_train,y_train_exp,X_test,y_test_exp]
+        labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i']
+
+        random_pack = [X_random, y_random_exp]
+        random_labels = ['X_random', 'y_random']
     
     # Package initial data sets
-    dt_packager.package_data(data_pack,labels)
+    dt_packager.package_data(data_pack,labels, datasample= 'ini')
+
+    # Package random data sets
+    dt_packager.package_data(random_pack, random_labels, datasample='random')
 
 
 if __name__ == "__main__":
