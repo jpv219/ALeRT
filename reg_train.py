@@ -10,42 +10,24 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from paths import PathConfig
 from model_lib import ModelConfig
+from data_utils import DataLoader
+
+# Global paths configuration
+PATH = PathConfig()
+####
 
 def main():
 
-    # Load data to process
-    path = PathConfig()
-
     case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
-    label_package = []
-    data_packs = []
 
-    # Read package names to later import
-    with open(os.path.join(path.input_savepath,case,'ini','Load_Labels.txt'), 'r') as file:
-        lines = file.readlines()
-
-        for line in lines:
-            label_package.append(line.split('\n')[0])
-
-    # Checking in PCA has been applied to the dataset
-    if 'PCA_info' in label_package:
-        pca = True
-    else:
-        pca = False
+    dataloader = DataLoader(case)
     
-    # Save only train and test packs: [X,y train, X,y test and X,y random]
-    label_package =  [item for item in label_package if item not in ['full', 'PCA_info']]
-    
-    # Load pickle files
-    for label in label_package:
+    inidata_dir = os.path.join(PATH.input_savepath, case, 'ini')
 
-        data_path = os.path.join(path.input_savepath,case,'ini',f'{label}.pkl')
+    # load initial data packs and retrieve whether pca has been executed
+    data_packs = dataloader.load_packs(inidata_dir)
+    pca = dataloader.pca
 
-        if os.path.exists(data_path):
-
-            data_pack = pd.read_pickle(data_path)          
-            data_packs.append(data_pack)
-    
     # Model selection from user input
     model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp_br, mlp): ')
     
@@ -114,7 +96,7 @@ def main():
     print(f'Saving {model_name} best model...')
     
     # Save best perfoming trained model based on model_train cross_validation filters and steps selected by the user
-    best_model_path = os.path.join(path.bestmodel_savepath, model_name)
+    best_model_path = os.path.join(PATH.bestmodel_savepath, model_name)
     model_instance.save_model(tuned_model,best_model_path,is_mlp)
 
     # Calling model evaluate with tuned model

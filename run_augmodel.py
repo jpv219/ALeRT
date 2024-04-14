@@ -8,70 +8,13 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from paths import PathConfig
-import pandas as pd
 from model_lib import ModelConfig
+from data_utils import DataLoader
 
 # Global paths configuration
 PATH = PathConfig()
 ####
-
-def check_pca(label_package):
-    # Checking in PCA has been applied to the dataset
-    if 'PCA_info' in label_package:
-        pca = True
-    else:
-        pca = False
-    
-    return pca
-
-def load_packs(dir):
-    
-    label_package = []
-    data_packs = []
-
-    labelfile_dir = os.path.join(dir,'Load_Labels.txt')
-    
-    # Read package names generated at input.py to later import
-    with open(labelfile_dir, 'r') as file:
-        lines = file.readlines()
-
-        for line in lines:
-            label_package.append(line.split('\n')[0])
-
-    pca = check_pca(label_package)
-    
-    # Save only train, test packs
-    label_package = [item for item in label_package if item not in ['full', 'PCA_info']]
-    
-    # Load pickle files
-    for label in label_package:
-
-        data_path = os.path.join(dir,f'{label}.pkl')
-
-        if os.path.exists(data_path):
-
-            data_pack = pd.read_pickle(data_path)          
-            data_packs.append(data_pack)
-    
-    return data_packs, pca
-        
-def augment_data(case, data_sample : str):
-
-    data_aug_dir = os.path.join(PATH.resample_savepath, case, data_sample)
-    ini_data_dir = os.path.join(PATH.input_savepath, case, 'ini')
-
-    aug_packs,_ = load_packs(data_aug_dir)
-    ini_packs,pca = load_packs(ini_data_dir)
-
-    # Augment training data with loaded sampled data
-    X_train_aug = pd.concat([ini_packs[0],aug_packs[0]], ignore_index= True)
-    y_train_aug = pd.concat([ini_packs[1],aug_packs[1]], ignore_index= True)
-
-    # Returning the newly augmented training sets and the original testing sets split in input.py
-    data_packs = [X_train_aug, y_train_aug,ini_packs[2],ini_packs[3]]
-
-    return data_packs, pca
-
+   
 def main():
 
     case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
@@ -80,8 +23,11 @@ def main():
 
     data_choice = input('Select the dataset sample to augment (random, dt, gsx): ')
 
+    dataloader = DataLoader(case)
+    
     # augment dataset with selected sample data
-    data_packs,pca = augment_data(case, data_choice)
+    data_packs = dataloader.augment_data(data_choice)
+    pca = dataloader.pca
     
     # Model configurer
     m_config = ModelConfig()

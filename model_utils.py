@@ -511,10 +511,15 @@ class KFoldCrossValidator(PathConfig):
         # clean if previous files exist
         else:
             for filename in os.listdir(dir):
-                file_path = os.path.join(dir,filename)
+                file_path = os.path.join(dir, filename)
 
+                # Check if the current file is a directory
                 if os.path.isdir(file_path):
-                    shutil.rmtree(file_path)  # Remove directory and its contents
+                    # Check if the directory is 'hyperparam_tune'
+                    if filename == 'hyperparam_tune':
+                        continue  # Skip this directory
+                    else:
+                        shutil.rmtree(file_path)  # Remove directory and its contents
                 else:
                     os.remove(file_path)
 
