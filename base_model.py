@@ -171,10 +171,10 @@ class Regressor(ABC,PathConfig):
     - 'halve_random': Combining Halving and Random search hyperparameter tuning.
 
     Options for mlp_tuning_type:
-    - 'hyperband': 
-    - 'bayesian': 
-    - 'random': 
-    - 'grid_search': 
+    - 'hyperband': takes hyperband iterations (iterations over the entire algorithm), training epochs, and a factor to reduce number of epochs and models
+    - 'bayesian': tuning with gaussian process, takes beta parameter to balance explotaition vs. exploration
+    - 'random': random search
+    - 'grid_search': standard gridsearch
 
     Options for fit_score:
     - 'mse': Mean Squared Error
