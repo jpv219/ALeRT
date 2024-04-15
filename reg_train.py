@@ -97,6 +97,9 @@ def main():
     
     # Save best perfoming trained model based on model_train cross_validation filters and steps selected by the user
     best_model_path = os.path.join(PATH.bestmodel_savepath, model_name)
+    # Check if the subfolder for the model exists
+    if not os.path.exists(best_model_path):
+        os.makedirs(best_model_path)
     model_instance.save_model(tuned_model,best_model_path,is_mlp)
 
     # Calling model evaluate with tuned model

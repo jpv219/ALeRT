@@ -5,6 +5,7 @@
 import pandas as pd
 import numpy as np
 import os
+import pickle
 # For the models
 from sklearn.tree import DecisionTreeRegressor
 from sklearn import tree
@@ -17,7 +18,7 @@ from paths import PathConfig
 
 PATH = PathConfig()
 
-def DT_extract_rules(tree, feature_names):
+def DT_extract_rules(tree, feature_names, scaler_folder):
     tree_ = tree.tree_ # stores the entire binary tree structure, represented as a number of parallel array
     feature_name = [
         feature_names[i] if i != _tree.TREE_UNDEFINED else 'undefined!'
@@ -27,7 +28,7 @@ def DT_extract_rules(tree, feature_names):
     paths = []
     path = []
 
-    def recurse(node, path, paths):
+    def recurse(scaler_folder, node, path, paths):
         '''
         The i-th element of each array holds information about the node i.
         Among these arrays, we have:
@@ -39,19 +40,22 @@ def DT_extract_rules(tree, feature_names):
         '''
         if tree_.feature[node] != _tree.TREE_UNDEFINED:
             name = feature_name[node]
-            threshold = tree_.threshold[node]
-            # apply the scaling pipeline inverse transform on the threshold
-            
+            scaled_threshold = tree_.threshold[node].reshape(-1,1)
+            # load the corresponding scaler for the feature: split name for file saving problem
+            with open(os.path.join(scaler_folder,f'scaler_{name.split()[0]}.pkl'),'rb') as f:
+                scaler = pickle.load(f)
+            # scale the threshold value back to its original ranges and convert back to type of numpy.float64
+            threshold = scaler.inverse_transform(scaled_threshold).reshape(-1)[0]
             p1, p2 = list(path), list(path)
             p1 += [f"({name} <= {np.round(threshold, 3)})"]
-            recurse(tree_.children_left[node], p1, paths)
+            recurse(scaler_folder,tree_.children_left[node], p1, paths)
             p2 += [f"({name} > {np.round(threshold, 3)})"]
-            recurse(tree_.children_right[node], p2, paths)
+            recurse(scaler_folder,tree_.children_right[node], p2, paths)
         else:
             path += [(node, tree_.n_node_samples[node], np.round(tree_.impurity[node],4))]
             paths += [path]
     
-    recurse(0, path, paths)
+    recurse(scaler_folder, 0, path, paths)
 
     # sort by node impurity (mean squared error)
     mse = [p[-1][-1] for p in paths]
@@ -71,7 +75,7 @@ def DT_extract_rules(tree, feature_names):
 
     return rules
 
-def DT_guided_resam(case, X_df, y_df,resample_savepath, fig_folder):
+def DT_guided_resam(case, X_df, y_df,resample_savepath, fig_folder, scaler_folder):
     '''
     return the sample space (splitting rules) for resampling
     '''
@@ -86,7 +90,7 @@ def DT_guided_resam(case, X_df, y_df,resample_savepath, fig_folder):
     model.fit(X_data,y_data)
 
     # extract the splitting rules in the order of high to low MSE
-    rules = DT_extract_rules(model, X_df.columns)
+    rules = DT_extract_rules(model, X_df.columns, scaler_folder)
 
     # Save the feature importantce
     fi_df = pd.DataFrame(columns=X_df.columns)
@@ -122,13 +126,14 @@ def main():
     dataloader = DataLoader(case)
 
     inidata_dir = os.path.join(PATH.input_savepath, case, 'ini')
+    scaler_dir = os.path.join(PATH.input_savepath, case)
 
     data_packs = dataloader.load_packs(inidata_dir)
 
     # Input the extracted data
     X_ini_df, y_ini_df = data_packs[0], data_packs[1]
 
-    regr, rules = DT_guided_resam(case,X_ini_df,y_ini_df,PATH.resample_savepath,PATH.fig_savepath)
+    regr, rules = DT_guided_resam(case,X_ini_df,y_ini_df,PATH.resample_savepath,PATH.fig_savepath,scaler_dir)
     
     # store rules to local log file
     with open(os.path.join(PATH.resample_savepath,case,f'resample_rules.log'), 'w') as file:
