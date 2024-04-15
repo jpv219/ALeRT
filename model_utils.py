@@ -824,7 +824,7 @@ class HyperParamTuning(PathConfig):
             
             # Include specific settings for hyperband tuner and remove max_trials
             tuner_args.update({
-                'max_epochs' : 10,
+                'max_epochs' : 100,
                 'factor': 3,
                 'hyperband_iterations': 3
             })

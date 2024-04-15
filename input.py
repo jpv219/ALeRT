@@ -98,14 +98,9 @@ def main():
         var_ratio = 0.95
         y_train_reduced, pca_info_df = dt_processor.PCA_reduction(y_train,var_ratio, datasample='ini')
 
-        # y_random_reduced, pca_info_reduced = dt_processor.PCA_reduction(y_random, var_ratio,datasample='random')
-
         # Package data for further use training and deploying regression models
         data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,y_train,pca_info_df]
         labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','y_train_i_raw','PCA_info']
-
-        # random_pack = [X_random, y_random_reduced,pca_info_reduced]
-        # random_labels = ['X_random', 'y_random','PCA_info']
 
     else:
         # Expand y_train and test columns containing arrays to individual columns per feature value for correct handling by regressor

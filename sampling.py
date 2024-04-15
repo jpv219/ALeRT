@@ -25,12 +25,13 @@ PATH = PathConfig()
 class ActLearSampler(ABC,PathConfig):
     def __init__(self, case):
         self.case = case
+        super().__init__()
 
     @abstractmethod
     def generate_rules(self):
         pass
 
-class GSX_Sampling(ActLearSampler, PathConfig):
+class GSX_Sampling(ActLearSampler):
     def __init__(self, case):
         super().__init__(case)
     
@@ -38,7 +39,7 @@ class GSX_Sampling(ActLearSampler, PathConfig):
         return super().generate_rules()
 
 
-class DT_Sampling(ActLearSampler, PathConfig):
+class DT_Sampling(ActLearSampler):
 
     def __init__(self,case) -> None:
         super().__init__(case)
