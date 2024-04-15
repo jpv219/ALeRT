@@ -9,14 +9,13 @@ import os
 from sklearn.tree import DecisionTreeRegressor
 from sklearn import tree
 from sklearn.tree import _tree
-# from numpy import absolute
-# from numpy import mean
-# from numpy import std
+from data_utils import DataLoader
 # For model visualization
 import matplotlib.pyplot as plt
 # For path config
 from paths import PathConfig
 
+PATH = PathConfig()
 
 def DT_extract_rules(tree, feature_names):
     tree_ = tree.tree_ # stores the entire binary tree structure, represented as a number of parallel array
@@ -117,38 +116,22 @@ def DT_guided_resam(case, X_df, y_df,resample_savepath, fig_folder):
     return model, rules
 
 def main():
-    path = PathConfig()
+
     case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
-    label_package = []
-    data_packs = []
 
-    # Read package names to later import
-    with open(os.path.join(path.input_savepath,case,'ini','Load_Labels.txt'), 'r') as file:
-        lines = file.readlines()
+    dataloader = DataLoader(case)
 
-        for line in lines:
-            label_package.append(line.split('\n')[0])
- 
-    # Save only train and test packs
-    label_package =  [item for item in label_package if item not in ['full', 'PCA_info']]
-    
-    # Load pickle files
-    for label in label_package:
+    inidata_dir = os.path.join(PATH.input_savepath, case, 'ini')
 
-        data_path = os.path.join(path.input_savepath,case,'ini',f'{label}.pkl')
-
-        if os.path.exists(data_path):
-
-            data_pack = pd.read_pickle(data_path)          
-            data_packs.append(data_pack)
+    data_packs = dataloader.load_packs(inidata_dir)
 
     # Input the extracted data
     X_ini_df, y_ini_df = data_packs[0], data_packs[1]
 
-    regr, rules = DT_guided_resam(case,X_ini_df,y_ini_df,path.resample_savepath,path.fig_savepath)
+    regr, rules = DT_guided_resam(case,X_ini_df,y_ini_df,PATH.resample_savepath,PATH.fig_savepath)
     
     # store rules to local log file
-    with open(os.path.join(path.resample_savepath,case,f'resample_rules.log'), 'w') as file:
+    with open(os.path.join(PATH.resample_savepath,case,f'resample_rules.log'), 'w') as file:
         for r in rules:
             file.write(r+'\n')
             print(r)
