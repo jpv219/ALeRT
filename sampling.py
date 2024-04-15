@@ -18,16 +18,30 @@ from model_lib import ModelConfig
 import matplotlib.pyplot as plt
 # For path config
 from paths import PathConfig
+from abc import ABC, abstractmethod
 
 PATH = PathConfig()
 
-
-class DT_Sampling(PathConfig):
-
-    def __init__(self,case) -> None:
-        super().__init__()
+class ActLearSampler(ABC,PathConfig):
+    def __init__(self, case):
         self.case = case
 
+    @abstractmethod
+    def generate_rules(self):
+        pass
+
+class GSX_Sampling(ActLearSampler, PathConfig):
+    def __init__(self, case):
+        super().__init__(case)
+    
+    def generate_rules(self):
+        return super().generate_rules()
+
+
+class DT_Sampling(ActLearSampler, PathConfig):
+
+    def __init__(self,case) -> None:
+        super().__init__(case)
         # Model configurer
         self.model_config = ModelConfig()
         
@@ -130,7 +144,7 @@ class DT_Sampling(PathConfig):
 
         return rules
 
-    def guided_resam(self, X_df):
+    def generate_rules(self, X_df):
         '''
         return the sample space (splitting rules) for resampling
         '''
@@ -167,8 +181,10 @@ def main():
 
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
-    if sampler_choice == 'dt':
-        sampler = DT_Sampling(case)
+    AL_samplers = {'dt': DT_Sampling(case),
+                   'gsx': GSX_Sampling(case)}
+    
+    sampler = AL_samplers.get(sampler_choice)
 
     dataloader = DataLoader(case)
     
@@ -179,7 +195,7 @@ def main():
     # Input the extracted data
     X_ini_df = data_packs[0]
 
-    rules = sampler.guided_resam(X_ini_df)
+    rules = sampler.generate_rules(X_ini_df)
     
     # store rules to local log file
     with open(os.path.join(PATH.resample_savepath,case,f'resample_rules.log'), 'w') as file:
