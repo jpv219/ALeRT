@@ -19,7 +19,7 @@ from paths import PathConfig
 
 
 def DT_extract_rules(tree, feature_names):
-    tree_ = tree.tree_
+    tree_ = tree.tree_ # stores the entire binary tree structure, represented as a number of parallel array
     feature_name = [
         feature_names[i] if i != _tree.TREE_UNDEFINED else 'undefined!'
         for i in tree_.feature
@@ -29,7 +29,15 @@ def DT_extract_rules(tree, feature_names):
     path = []
 
     def recurse(node, path, paths):
-
+        '''
+        The i-th element of each array holds information about the node i.
+        Among these arrays, we have:
+        childen_left[i]: id of the left child of node i or -1 if leaf node
+        childen_right[i]: id of the right child of node i or -1 if leaf node
+        feature[i]: feature used for splitting node i
+        threshold[i]: threshold value at node i
+        
+        '''
         if tree_.feature[node] != _tree.TREE_UNDEFINED:
             name = feature_name[node]
             threshold = tree_.threshold[node]
