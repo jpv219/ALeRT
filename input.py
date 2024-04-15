@@ -79,6 +79,7 @@ def main():
     
     # train test splitting with filtered datapack from the initial dataset to be used
     X_train, X_test, y_train, y_test = train_test_split(X_ini, y_ini, test_size=0.25, random_state=2024)
+    print(f'Sizes of ini training: {X_train.shape[0]}; test: {X_test.shape[0]}; random: {X_random.shape[0]} ')
 
     # recombine filtered minmax cases into initial training data pack
     combine_choice = input('Include the filtered cases into training? (y/n):')
@@ -97,36 +98,32 @@ def main():
         var_ratio = 0.95
         y_train_reduced, pca_info_df = dt_processor.PCA_reduction(y_train,var_ratio, datasample='ini')
 
-        y_random_reduced, pca_info_reduced = dt_processor.PCA_reduction(y_random, var_ratio,datasample='random')
+        # y_random_reduced, pca_info_reduced = dt_processor.PCA_reduction(y_random, var_ratio,datasample='random')
 
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,pca_info_df]
-        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','PCA_info']
+        data_pack = [df,X_train,y_train_reduced,X_test,y_test_exp,y_train,pca_info_df]
+        labels = ['full','X_train_i','y_train_i_red','X_test_i','y_test_i','y_train_i_raw','PCA_info']
 
-        random_pack = [X_random, y_random_reduced,pca_info_reduced]
-        random_labels = ['X_random', 'y_random','PCA_info']
+        # random_pack = [X_random, y_random_reduced,pca_info_reduced]
+        # random_labels = ['X_random', 'y_random','PCA_info']
 
     else:
-
         # Expand y_train and test columns containing arrays to individual columns per feature value for correct handling by regressor
         y_train_exp = dt_packager.expand_targets(y_train)
 
-        # Expand targets for random dataset split for further model train and eval
-        y_random_exp = dt_packager.expand_targets(y_random)
-
         # Package data for further use training and deploying regression models
-        data_pack = [df,X_train,y_train_exp,X_test,y_test_exp]
-        labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i']
-
-        random_pack = [X_random, y_random_exp]
-        random_labels = ['X_random', 'y_random']
+        data_pack = [df,X_train,y_train_exp,X_test,y_test_exp,y_train]
+        labels = ['full','X_train_i','y_train_i','X_test_i','y_test_i','y_train_i_raw']
     
     # Package initial data sets
     dt_packager.package_data(data_pack,labels, datasample= 'ini')
 
     # Package random data sets
-    dt_packager.package_data(random_pack, random_labels, datasample='random')
+    random_pack = [X_random, y_random]
+    random_labels = ['X_random', 'y_random_raw']
 
+    dt_packager.package_data(random_pack, random_labels, datasample='random')
+    
 
 if __name__ == "__main__":
     main()

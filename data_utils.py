@@ -349,13 +349,15 @@ class DataProcessor(PathConfig):
 
             # Expanding each feature list into columns to carry out PCA
             df_exp = df[column].apply(pd.Series) # rows = cases, columns = values per feature 'colummn'
-            #Naming columns with feature name for later reference ('E_0','E_1',...)
+            # Naming columns with feature name for later reference ('E_0','E_1',...)
             df_exp.columns = [f'{column}'+'_{}'.format(i) for i in range(len(df_exp.columns))]
 
             # PCA for dimensionality reduction, deciding n_pcs by variance captured, using the expanded df
             pca = PCA(n_components=var_ratio)
             pca_arr = pca.fit_transform(df_exp) #fit PCA and apply reduction
             # Save the transform for later (reverse pca)
+            if not os.path.exists(os.path.join(self.pca_savepath, self._case,datasample)):
+                os.makedirs(os.path.join(self.pca_savepath, self._case,datasample))
             with open(os.path.join(self.pca_savepath, self._case,datasample, f'pca_model_{column}.pkl'), 'wb') as f:
                 pickle.dump(pca,f)
             n_pcs = pca.n_components_ # number of components extracted for the values expanded from feature 'column'
@@ -474,6 +476,7 @@ class DataLoader(PathConfig):
             for line in lines:
                 label_package.append(line.split('\n')[0])
 
+        # change or keep the property pca
         self.check_pca(label_package)
         
         # Save only train, test packs
@@ -500,8 +503,20 @@ class DataLoader(PathConfig):
         ini_packs = self.load_packs(ini_data_dir)
 
         # Augment training data with loaded sampled data
+        # data_packs[0] = X_train, data_packs[1] = y_train(ready as model input),  data_pack[-1] = Y_TRAIN_RAW
         X_train_aug = pd.concat([ini_packs[0],aug_packs[0]], ignore_index= True)
-        y_train_aug = pd.concat([ini_packs[1],aug_packs[1]], ignore_index= True)
+        y_train_aug_raw = pd.concat([ini_packs[-1],aug_packs[-1]], ignore_index= True)
+
+        # perform either expand_target or PCA_reduction here
+        dt_processor = DataProcessor(self.case)
+        dt_packager = DataPackager(self.case)
+        if self._pca:
+            # Carry out PCA on scaled outputs for training only
+            var_ratio = 0.95
+            y_train_aug, _ = dt_processor.PCA_reduction(y_train_aug_raw,var_ratio, datasample=data_sample)
+
+        else:
+            y_train_aug = dt_packager.expand_targets(y_train_aug_raw)
 
         # Returning the newly augmented training sets and the original testing sets split in input.py
         data_packs = [X_train_aug, y_train_aug,ini_packs[2],ini_packs[3]]
