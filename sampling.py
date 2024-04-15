@@ -41,6 +41,8 @@ def DT_extract_rules(tree, feature_names):
         if tree_.feature[node] != _tree.TREE_UNDEFINED:
             name = feature_name[node]
             threshold = tree_.threshold[node]
+            # apply the scaling pipeline inverse transform on the threshold
+            
             p1, p2 = list(path), list(path)
             p1 += [f"({name} <= {np.round(threshold, 3)})"]
             recurse(tree_.children_left[node], p1, paths)
