@@ -35,7 +35,7 @@ class GSX_Sampling(ActLearSampler):
     def __init__(self, case):
         super().__init__(case)
     
-    def generate_rules(self):
+    def generate_rules(self, X_df):
         return super().generate_rules()
 
 
@@ -178,7 +178,7 @@ class DT_Sampling(ActLearSampler):
 
 def main():
 
-    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
+    case = input('Select a study from where to load proccessed data packs (sp(sv)_geom): ')
 
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 

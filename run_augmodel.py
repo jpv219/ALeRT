@@ -17,16 +17,20 @@ PATH = PathConfig()
    
 def main():
 
-    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
+    case = input('Select a study from where to load proccessed data packs (sp(sv)_geom): ')
 
     model_choice = input('Select a trained model to load and deploy (dt, xgb, rf, svm, knn, mlp_br, mlp): ')
 
-    data_choice = input('Select the dataset sample to augment (random, dt, gsx): ')
+    data_choice = input('Select the dataset sample to augment with (random, dt, gsx): ')
 
     dataloader = DataLoader(case)
     
     # augment dataset with selected sample data
     data_packs = dataloader.augment_data(data_choice)
+
+    print(f'Augmented training data now has size: {data_packs[0].shape[0]}')
+    print('-'*72)
+
     pca = dataloader.pca
     
     # Model configurer

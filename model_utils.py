@@ -530,8 +530,8 @@ class HyperParamTuning(PathConfig):
     ## SEARCH SPACES ##
     regressor_hp_search_space = {'dt': {'criterion': ['squared_error', 'friedman_mse', 'absolute_error'],
                 'max_depth': [2, 4, 6, 8, 10],
-                'min_samples_split': [2, 4, 6, 8, 10],
-                'min_samples_leaf': [1, 2, 4, 6],
+                'min_samples_split': [2, 4, 6, 8, 10, 12, 14],
+                'min_samples_leaf': [1, 2, 3, 4, 6],
                 'min_impurity_decrease': [0.0, 0.1, 0.2, 0.3],
                 'max_leaf_nodes': [None, 2, 5],
                 'splitter' : ['best','random']}, 

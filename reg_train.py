@@ -17,7 +17,7 @@ PATH = PathConfig()
 
 def main():
 
-    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
+    case = input('Select a study from where to load proccessed data packs (sp(sv)_geom): ')
 
     dataloader = DataLoader(case)
     

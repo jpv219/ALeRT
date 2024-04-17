@@ -69,9 +69,10 @@ class LogScaler:
 
 class DataReader(PathConfig):
 
-    def __init__(self,case):
+    def __init__(self,case, data):
         super().__init__()
         self._case = case
+        self._data = data
 
     def collect_csv_pkl(self):
         
@@ -79,8 +80,8 @@ class DataReader(PathConfig):
         DOE_list = []
 
         # data and DOE paths for the case under consideration
-        csv_path = os.path.join(self.raw_datapath,self._case) #output data
-        doe_path = os.path.join(self.label_datapath,self._case) #input data/labels
+        csv_path = os.path.join(self.raw_datapath,self._case, self._data) #output data
+        doe_path = os.path.join(self.label_datapath,self._case,self._data) #input data/labels
 
         file_count = len(os.listdir(csv_path))
 
@@ -150,9 +151,10 @@ class DataReader(PathConfig):
 
 class DataProcessor(PathConfig):
 
-    def __init__(self,case):
+    def __init__(self,case,data):
         super().__init__()
         self._case = case
+        self._data = data
 
     def find_indices(self,df_column,where,percentage=0.0):
         '''
@@ -246,7 +248,7 @@ class DataProcessor(PathConfig):
                     else:
                         # Save the scaler for later inverse transformation for input
                         scaler.fit(df[column].values.reshape(-1,1))
-                        with open(os.path.join(self.input_savepath,self._case,f'scaler_{column.split()[0]}.pkl'),'wb') as f:
+                        with open(os.path.join(self.input_savepath,self._case, self._data, f'scaler_{column.split()[0]}.pkl'),'wb') as f:
                             pickle.dump(scaler,f)
                         df[column] = scaler.transform(df[column].values.reshape(-1,1))
                         df[column] = df[column].values.reshape(-1,)
@@ -335,7 +337,7 @@ class DataProcessor(PathConfig):
                 ax[i,2].plot(reset_extreme[column])
                 ax[i,2].set_title(f'Scaled Data from extreme cases: {column}')
 
-        fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_{data_label}'),dpi=200)
+        fig.savefig(os.path.join(self.fig_savepath,self._case, self._data, f'{self._case}_{data_label}'),dpi=200)
         plt.show()
     
     def PCA_reduction(self,df,var_ratio, datasample: str):
@@ -356,9 +358,9 @@ class DataProcessor(PathConfig):
             pca = PCA(n_components=var_ratio)
             pca_arr = pca.fit_transform(df_exp) #fit PCA and apply reduction
             # Save the transform for later (reverse pca)
-            if not os.path.exists(os.path.join(self.pca_savepath, self._case,datasample)):
-                os.makedirs(os.path.join(self.pca_savepath, self._case,datasample))
-            with open(os.path.join(self.pca_savepath, self._case,datasample, f'pca_model_{column}.pkl'), 'wb') as f:
+            if not os.path.exists(os.path.join(self.pca_savepath, self._case, datasample)):
+                os.makedirs(os.path.join(self.pca_savepath, self._case, datasample))
+            with open(os.path.join(self.pca_savepath, self._case, datasample, f'pca_model_{column}.pkl'), 'wb') as f:
                 pickle.dump(pca,f)
             n_pcs = pca.n_components_ # number of components extracted for the values expanded from feature 'column'
 
@@ -390,7 +392,8 @@ class DataProcessor(PathConfig):
             plt.xlabel('Number of Components')
             plt.ylabel('Explained Variance')
             plt.title(f'{column}: [PC={n_pcs}]')
-            fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_PCA_{column}'),dpi=200)
+            fig.savefig(os.path.join(self.fig_savepath, self._case, self._data, f'{self._case}_PCA_{column}'),dpi=200)
+            plt.close(fig)
 
         return df, pca_info_df
 
@@ -398,9 +401,10 @@ class DataProcessor(PathConfig):
 
 class DataPackager(PathConfig):
 
-    def __init__(self,case):
+    def __init__(self,case,data):
         super().__init__()
         self._case = case
+        self._data = data
 
     def expand_targets(self, target_df: pd.DataFrame) -> pd.DataFrame:
         
@@ -418,26 +422,26 @@ class DataPackager(PathConfig):
     def package_data(self,data_pack,labels,datasample: str):
 
         if datasample == 'ini':
-            data_dir = self.input_savepath
-        elif datasample == 'random':
-            data_dir = self.resample_savepath
+            data_dir = os.path.join(self.input_savepath,self._case, datasample)
+        else:
+            data_dir = os.path.join(self.resample_savepath,self._case, datasample)
         
         #Create the folder to store input datasets
         try:
-            os.mkdir(os.path.join(data_dir,self._case, datasample))
+            os.mkdir(data_dir)
         except:
             pass
         
         # Storing datasets with corresponding labels
         for data, label in zip(data_pack,labels):
 
-            with open(os.path.join(data_dir,self._case,datasample,f'{label}.pkl'),'wb') as file:
+            with open(os.path.join(data_dir,f'{label}.pkl'),'wb') as file:
                 pickle.dump(data,file)
 
             print(f'Data packet {label} saved successfully')
         
         # Saving package labels to load later
-        with open(os.path.join(data_dir,self._case,datasample,'Load_Labels.txt'), 'w') as file:
+        with open(os.path.join(data_dir,'Load_Labels.txt'), 'w') as file:
                 for label in labels:
                     file.write(label + '\n')
 
@@ -502,14 +506,19 @@ class DataLoader(PathConfig):
         aug_packs = self.load_packs(data_aug_dir)
         ini_packs = self.load_packs(ini_data_dir)
 
+        print('-'*72)
+        print(f'Augmenting {aug_packs[0].shape[0]} cases from sample {data_sample} to initial training data with initial size: {ini_packs[0].shape[0]}')
+        print('-'*72)
+
         # Augment training data with loaded sampled data
         # data_packs[0] = X_train, data_packs[1] = y_train(ready as model input),  data_pack[-1] = Y_TRAIN_RAW
         X_train_aug = pd.concat([ini_packs[0],aug_packs[0]], ignore_index= True)
         y_train_aug_raw = pd.concat([ini_packs[-1],aug_packs[-1]], ignore_index= True)
 
         # perform either expand_target or PCA_reduction here
-        dt_processor = DataProcessor(self.case)
-        dt_packager = DataPackager(self.case)
+        dt_processor = DataProcessor(self.case, data_sample)
+        dt_packager = DataPackager(self.case, data_sample)
+
         if self._pca:
             # Carry out PCA on scaled outputs for training only
             var_ratio = 0.95
