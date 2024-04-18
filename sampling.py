@@ -153,7 +153,7 @@ class DT_Sampling(ActLearSampler):
         # initialize model instance
         model = self.load_dt_model()
 
-        scaler_folder = os.path.join(self.input_savepath, self.case)
+        scaler_folder = os.path.join(self.input_savepath, self.case, 'ini')
 
         # extract the splitting rules in the order of high to low MSE
         rules = self.extract_rules(model, X_df.columns, scaler_folder)
@@ -163,7 +163,7 @@ class DT_Sampling(ActLearSampler):
         fi_df.loc[len(fi_df)] = model.feature_importances_
         fi_df_T = fi_df.transpose()
         fi_df_T = fi_df_T.sort_values(by=fi_df_T.columns[0],ascending=False)
-        fi_df_T.to_pickle(os.path.join(self.resample_savepath,self.case,f'resample_FI.pkl'))
+        fi_df_T.to_pickle(os.path.join(self.resample_savepath,self.case,'dt','log_rules',f'resample_FI.pkl'))
 
         # Visualize the feature important and save the plot
         fig = plt.figure(figsize=(8,6))
@@ -171,7 +171,7 @@ class DT_Sampling(ActLearSampler):
         plt.xlabel(r'Geometry Parameters', fontsize=20)
         plt.ylabel(r'Feature Importance', fontsize=20)
         plt.xticks(rotation=45)
-        fig.savefig(os.path.join(self.fig_savepath,f'{self.case}_FI.png'),dpi=200)
+        fig.savefig(os.path.join(self.fig_savepath,self.case,'dt',f'{self.case}_FI.png'),dpi=200)
         plt.show()
 
         return rules
@@ -199,7 +199,7 @@ def main():
     rules = sampler.generate_rules(X_ini_df)
     
     # store rules to local log file
-    with open(os.path.join(PATH.resample_savepath,case,f'resample_rules.log'), 'w') as file:
+    with open(os.path.join(PATH.resample_savepath,case,'dt','log_rules',f'{sampler_choice}_rules.log'), 'w') as file:
         for r in rules:
             file.write(r+'\n')
             print(r)
