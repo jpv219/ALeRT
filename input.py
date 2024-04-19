@@ -143,12 +143,9 @@ def process_dt(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager):
         X_train = pd.concat([X_train,X_scaled[1]],axis=0)
         y_train = pd.concat([y_train,y_scaled[1]],axis=0)
 
-    # Expand y_train and test columns containing arrays to individual columns per feature value for correct handling by regressor
-    y_train_exp = dt_packager.expand_targets(y_train)
-
     # Package data for further use training and deploying regression models
-    data_pack = [df,X_train,y_train_exp,y_train]
-    labels = ['full','X_train_dt','y_train_dt','y_train_dt_raw']
+    data_pack = [df,X_train,y_train]
+    labels = ['full','X_train_dt','y_train_dt_raw']
     
     # Package initial data sets
     dt_packager.package_data(data_pack,labels, datasample= 'dt')

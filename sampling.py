@@ -24,20 +24,84 @@ PATH = PathConfig()
 
 class ActLearSampler(ABC,PathConfig):
     def __init__(self, case):
-        self.case = case
         super().__init__()
+
+        self.case = case
+        self.scaler_folder = os.path.join(self.input_savepath, self.case, 'ini')
 
     @abstractmethod
     def generate_rules(self):
         pass
 
-class GSX_Sampling(ActLearSampler):
-    def __init__(self, case):
-        super().__init__(case)
-    
-    def generate_rules(self, X_df):
-        return super().generate_rules()
+############################################################################################################################
 
+class GSX_Sampling(ActLearSampler):
+    def __init__(self, case,num_samples):
+        super().__init__(case)
+        self.num_samples = num_samples
+
+    def inverse_transform_scaling(self, X_df: pd.DataFrame) -> pd.DataFrame:
+
+        inv_X_df = pd.DataFrame(columns = X_df.columns, index = X_df.index)
+        
+        for column in X_df.columns:
+        
+            # load the corresponding scaler for the feature: split name for file saving problem
+            with open(os.path.join(self.scaler_folder,f'scaler_{column.split()[0]}.pkl'),'rb') as f:
+                scaler = pickle.load(f)
+            
+            # scale the threshold value back to its original ranges and convert back to type of numpy.float64
+            threshold = scaler.inverse_transform(X_df[column].values.reshape(-1,1))
+
+            inv_X_df[column] = threshold
+        
+        return inv_X_df
+
+    def generate_rules(self, X_df:pd.DataFrame):
+        
+        inv_X_df = self.inverse_transform_scaling(X_df)
+        
+        selected_indices = []
+
+        # Select one random case as initial sample
+        initial_index = np.random.randint(0, len(inv_X_df))
+        selected_indices.append(initial_index)
+
+        while len(selected_indices) < self.num_samples:
+            # Get indices of cases that are not yet selected
+            not_selected_indices = [i for i in range(len(inv_X_df)) if i not in selected_indices]
+
+            min_distances = []
+            for i in not_selected_indices:
+                # Calculate distances between current case and selected cases
+                distances = [np.linalg.norm(inv_X_df.iloc[i] - inv_X_df.iloc[j]) for j in selected_indices]
+                min_distances.append(min(distances))
+
+            # Select the case with maximum minimum distance
+            new_index = not_selected_indices[np.argmax(min_distances)]
+            selected_indices.append(new_index)
+
+        # Collect selected samples outside the loop
+        selected_samples = inv_X_df.iloc[selected_indices]
+
+        rules = ['Cases to sample from GSx',str(list(selected_samples.columns))]
+
+        # Append samples selected as separate string lines to the rules list
+        for i in range(len(selected_samples)):
+
+            rounded_values = [round(val, 4) if isinstance(val, float) else val for val in selected_samples.iloc[i].values]
+
+            rules.append(str(rounded_values))
+
+        # Append min max values from the new sample space generated
+        rules.append('Max/min values per input feature')
+
+        for feature in selected_samples.columns:
+
+            rules.append(str(feature) + '[MAX, MIN]')
+            rules.append(str([selected_samples[feature].max(), selected_samples[feature].min()]))
+
+        return rules
 
 class DT_Sampling(ActLearSampler):
 
@@ -87,8 +151,7 @@ class DT_Sampling(ActLearSampler):
         proc = subprocess.Popen(['python', 'reg_train.py'], stdin=subprocess.PIPE)
         proc.communicate(input=input_str.encode())  # Encode input string to bytes
     
-    @staticmethod
-    def extract_rules(tree, feature_names, scaler_folder):
+    def extract_rules(self, tree, feature_names):
         tree_ = tree.tree_ # stores the entire binary tree structure, represented as a number of parallel array
         feature_name = [
             feature_names[i] if i != _tree.TREE_UNDEFINED else 'undefined!'
@@ -98,7 +161,7 @@ class DT_Sampling(ActLearSampler):
         paths = []
         path = []
 
-        def recurse(scaler_folder, node, path, paths):
+        def recurse(node, path, paths):
             '''
             The i-th element of each array holds information about the node i.
             Among these arrays, we have:
@@ -111,21 +174,25 @@ class DT_Sampling(ActLearSampler):
             if tree_.feature[node] != _tree.TREE_UNDEFINED:
                 name = feature_name[node]
                 scaled_threshold = tree_.threshold[node].reshape(-1,1)
+
                 # load the corresponding scaler for the feature: split name for file saving problem
-                with open(os.path.join(scaler_folder,f'scaler_{name.split()[0]}.pkl'),'rb') as f:
+                with open(os.path.join(self.scaler_folder,f'scaler_{name.split()[0]}.pkl'),'rb') as f:
                     scaler = pickle.load(f)
+
                 # scale the threshold value back to its original ranges and convert back to type of numpy.float64
                 threshold = scaler.inverse_transform(scaled_threshold).reshape(-1)[0]
+
                 p1, p2 = list(path), list(path)
                 p1 += [f"({name} <= {np.round(threshold, 3)})"]
-                recurse(scaler_folder,tree_.children_left[node], p1, paths)
+                recurse(tree_.children_left[node], p1, paths)
                 p2 += [f"({name} > {np.round(threshold, 3)})"]
-                recurse(scaler_folder,tree_.children_right[node], p2, paths)
+                recurse(tree_.children_right[node], p2, paths)
+
             else:
                 path += [(node, tree_.n_node_samples[node], np.round(tree_.impurity[node],4))]
                 paths += [path]
         
-        recurse(scaler_folder, 0, path, paths)
+        recurse(0, path, paths)
 
         # sort by node impurity (mean squared error)
         mse = [p[-1][-1] for p in paths]
@@ -145,7 +212,7 @@ class DT_Sampling(ActLearSampler):
 
         return rules
 
-    def generate_rules(self, X_df):
+    def generate_rules(self, X_df: pd.DataFrame):
         '''
         return the sample space (splitting rules) for resampling
         '''
@@ -153,10 +220,8 @@ class DT_Sampling(ActLearSampler):
         # initialize model instance
         model = self.load_dt_model()
 
-        scaler_folder = os.path.join(self.input_savepath, self.case, 'ini')
-
         # extract the splitting rules in the order of high to low MSE
-        rules = self.extract_rules(model, X_df.columns, scaler_folder)
+        rules = self.extract_rules(model, X_df.columns)
 
         # Save the feature importantce
         fi_df = pd.DataFrame(columns=X_df.columns)
@@ -183,7 +248,7 @@ def main():
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
     AL_samplers = {'dt': DT_Sampling(case),
-                   'gsx': GSX_Sampling(case)}
+                   'gsx': GSX_Sampling(case, num_samples=15)}
     
     sampler = AL_samplers.get(sampler_choice)
 
@@ -199,7 +264,7 @@ def main():
     rules = sampler.generate_rules(X_ini_df)
     
     # store rules to local log file
-    with open(os.path.join(PATH.resample_savepath,case,'dt','log_rules',f'{sampler_choice}_rules.log'), 'w') as file:
+    with open(os.path.join(PATH.resample_savepath,case,sampler_choice,'log_rules',f'{sampler_choice}_rules.log'), 'w') as file:
         for r in rules:
             file.write(r+'\n')
             print(r)
