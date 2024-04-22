@@ -8,6 +8,8 @@
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.ticker import MaxNLocator
+import seaborn as sns
 import numpy as np
 import pandas as pd
 import ast
@@ -238,18 +240,31 @@ class DataProcessor(PathConfig):
                 if df_idx == 0:
                     # Apply scaler, reshaping into a column vector (n,1) for scaler to work if output feature is an array
                     if df[column].dtype == 'object':
-                        flat_list = [ele_val for ele in df[column] for ele_val in ele]
-                        flat_arr = np.array(flat_list).reshape(-1,1)
-                        scaler.fit(flat_arr)
+                        # check if the data_name is ini, yes then need to fit the scaler, otherwise load the scaler from ini
+                        if self._data != 'ini':
+                            with open(os.path.join(self.input_savepath,self._case, 'ini', f'scaler_y_{column.split()[0]}.pkl'),'rb') as f:
+                                scaler = pickle.load(f)
+                        else:
+                            flat_list = [ele_val for ele in df[column] for ele_val in ele]
+                            flat_arr = np.array(flat_list).reshape(-1,1)
+                            scaler.fit(flat_arr)
+                            # save the scaler for later augmentation
+                            with open(os.path.join(self.input_savepath,self._case, self._data, f'scaler_y_{column.split()[0]}.pkl'),'wb') as f:
+                                pickle.dump(scaler,f)
 
                         df[column] = df[column].apply(lambda x: scaler.transform(x.reshape(-1,1)))            
                         # reshaping back to a 1D list
                         df[column] = df[column].apply(lambda x: x.reshape(-1,))
                     else:
+                        # check if the data_name is ini, yes then need to fit the scaler, otherwise load the scaler from ini
+                        if self._data != 'ini':
+                            with open(os.path.join(self.input_savepath,self._case, 'ini', f'scaler_X_{column.split()[0]}.pkl'),'rb') as f:
+                                scaler = pickle.load(f)
                         # Save the scaler for later inverse transformation for input
-                        scaler.fit(df[column].values.reshape(-1,1))
-                        with open(os.path.join(self.input_savepath,self._case, self._data, f'scaler_{column.split()[0]}.pkl'),'wb') as f:
-                            pickle.dump(scaler,f)
+                        else:
+                            scaler.fit(df[column].values.reshape(-1,1))
+                            with open(os.path.join(self.input_savepath,self._case, self._data, f'scaler_X_{column.split()[0]}.pkl'),'wb') as f:
+                                pickle.dump(scaler,f)
                         df[column] = scaler.transform(df[column].values.reshape(-1,1))
                         df[column] = df[column].values.reshape(-1,)
                 
@@ -282,18 +297,23 @@ class DataProcessor(PathConfig):
                    'power': PowerTransformer(),
                    'quantile': QuantileTransformer(output_distribution='normal')}
         
-        # create a pipeline with the scaler and/or MinMaxScaler
-        if scaling != 'norm':
-            scaling_pipeline = Pipeline([
-                (scaling, scalers.get(scaling)),
-                ('minmax', MinMaxScaler(feature_range=(-1,1)))
-            ])
+        # create scaler only for ini
+        if self._data == 'ini':
+            # create a pipeline with the scaler and/or MinMaxScaler
+            if scaling != 'norm':
+                scaling_pipeline = Pipeline([
+                    (scaling, scalers.get(scaling)),
+                    ('minmax', MinMaxScaler(feature_range=(-1,1)))
+                ])
+            else:
+                scaling_pipeline = Pipeline([
+                    ('minmax', MinMaxScaler(feature_range=(-1,1)))
+                ])
+            
+            scaler = scaling_pipeline
         else:
-            scaling_pipeline = Pipeline([
-                ('minmax', MinMaxScaler(feature_range=(-1,1)))
-            ])
-        
-        scaler = scaling_pipeline
+            scaler = None
+
         mmscaled_data = self.apply_scaling(scaler, data_pack)
  
         return mmscaled_data
@@ -341,13 +361,17 @@ class DataProcessor(PathConfig):
         plt.show()
     
     def PCA_reduction(self,df,var_ratio, datasample: str):
-    
+        '''
+        Perform PCA reduction and plot diagrams of Explained variance vs number of principal components
+        '''
         # Empty Dataframe for PCs results and principal axes
         pca_labels = ['PCs', 'Dominant_Features', 'Explained_Var']
         pca_info_df = pd.DataFrame(columns=pca_labels)
 
+        fig,ax = plt.subplots(figsize=(8,6))
+        colors = sns.color_palette('muted',len(df.columns))
         # Carry out expansion and PCA per array features(exclude scalar outputs if any)
-        for column in df.select_dtypes(include=object).columns:
+        for idx, column in enumerate(df.select_dtypes(include=object).columns):
 
             # Expanding each feature list into columns to carry out PCA
             df_exp = df[column].apply(pd.Series) # rows = cases, columns = values per feature 'colummn'
@@ -387,13 +411,21 @@ class DataProcessor(PathConfig):
                 
                 pca_info_df = pd.concat([pca_info_df,pd.Series(row_to_add).to_frame().T],ignore_index=True)
 
-            fig = plt.figure(figsize=(8,6))
-            plt.plot(np.cumsum(pca.explained_variance_ratio_))
-            plt.xlabel('Number of Components')
-            plt.ylabel('Explained Variance')
-            plt.title(f'{column}: [PC={n_pcs}]')
-            fig.savefig(os.path.join(self.fig_savepath, self._case, self._data, f'{self._case}_PCA_{column}'),dpi=200)
-            plt.close(fig)
+            
+            plt.plot(np.cumsum(pca.explained_variance_ratio_)*100, linewidth=2.5,color=colors[idx], label=f'{column}: [PC={n_pcs}]')
+            
+        plt.xlabel('Number of Components',fontweight='bold',fontsize=30)
+        plt.ylabel(r'Explained Variance [\%]',fontweight='bold',fontsize=30)
+        plt.tick_params(axis='both',labelsize=20)
+        # plt.title(f'{column}: [PC={n_pcs}]')
+        plt.legend(#title=f'No. of ', title_fontsize=25,
+                                loc='lower right',fontsize=18,
+                                edgecolor='black', frameon=True)
+        plt.axhline(y=95, color='black', linestyle='--', linewidth=2)
+        plt.text(0.02, 90, r'Exp. Var. = 95\%', transform=ax.get_yaxis_transform(), fontsize=18)
+        plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_PCA.png'),dpi=200)
 
         return df, pca_info_df
 

@@ -6,7 +6,9 @@
 ##########################################################################
 
 import pandas as pd
+import os
 from sklearn.model_selection import train_test_split
+from paths import PathConfig
 from data_utils import DataReader, DataProcessor, DataPackager
 
 
@@ -137,12 +139,6 @@ def process_dt(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager):
 
     print(f'Sizes of dt training set: {X_train.shape[0]} ')
 
-    # recombine filtered minmax cases into initial training data pack
-    combine_choice = input('Include the filtered cases into training? (y/n):')
-    if combine_choice.lower() == 'y':
-        X_train = pd.concat([X_train,X_scaled[1]],axis=0)
-        y_train = pd.concat([y_train,y_scaled[1]],axis=0)
-
     # Package data for further use training and deploying regression models
     data_pack = [df,X_train,y_train]
     labels = ['full','X_train_dt','y_train_dt_raw']
@@ -152,11 +148,15 @@ def process_dt(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager):
 
 def main():
     
-    case_name = input('Select a study to process raw datasets (sp(sv)_geom): ')
+    case_name = input('Select a study to process raw datasets (sp_(sv)geom): ')
 
     data_name = input('Select a dataset to process from the study selected above (ini, dt): ')
        
     dt_reader = DataReader(case_name,data_name)
+    dt_processor = DataProcessor(case_name, data_name)
+    dt_packager = DataPackager(case_name, data_name)
+    # Global paths configuration
+    PATH = PathConfig()
     
     #Combine csv and DOE label files
     df = dt_reader.combine_data()
@@ -172,27 +172,37 @@ def main():
 
     print(f'The input and output parameters in this case study are: {param_idx}')
 
-    in_idx = input('Provide cut-off index between input and output params (first out idx): ')
-
-    #Choose idx for output variables
-    out_idx = input('Select the output parameters idx to include (separated by ,) or choose \'all\': ')
-
-    # Filter cases with min/max feature values
-    filter_range = input('Define filter percentages [0,1] for min/max cases (default: min_filter,max_filter = 0,0): ')
-
-    #Scale input and output features
-    scale_choice = input('Select a scaling method (norm/log/robust/power/quantile): ')
-
-    # Class instances
-    dt_processor = DataProcessor(case_name, data_name)
-    dt_packager = DataPackager(case_name, data_name)
-
-    X_scaled, y_scaled = preprocess_data(df, dt_processor, in_idx, out_idx, filter_range, scale_choice)
-
     if data_name == 'ini':
+        in_idx = input('Provide cut-off index between input and output params (first out idx): ')
+
+        #Choose idx for output variables
+        out_idx = input('Select the output parameters idx to include (separated by ,) or choose \'all\': ')
+
+        # Filter cases with min/max feature values
+        filter_range = input('Define filter percentages [0,1] for min/max cases (default: min_filter,max_filter = 0,0): ')
+
+        #Scale input and output features
+        scale_choice = input('Select a scaling method (norm/log/robust/power/quantile): ')
+
+        X_scaled, y_scaled = preprocess_data(df, dt_processor, in_idx, out_idx, filter_range, scale_choice)
+    
         process_ini(df, X_scaled, y_scaled, dt_processor, dt_packager)
 
     elif data_name == 'dt':
+        # extract the columns from ini pre-processing
+        scaler_path = os.path.join(PATH.input_savepath,case_name, 'ini')
+        file_names = os.listdir(scaler_path)
+        # filter the columns for X_df
+        X_columns = [col.split('scaler_X_')[1].split('.')[0] for col in file_names if col.startswith('scaler_X_')]
+        regex_pattern = '|'.join(X_columns)
+        X_df = df.filter(regex=regex_pattern)
+        # filter the columns for X_df
+        y_columns = [col.split('scaler_y_')[1].split('.')[0] for col in file_names if col.startswith('scaler_y_')]
+        y_df = df[y_columns]
+
+        X_scaled = dt_processor.scale_data([X_df.copy()], scaling=None)
+        y_scaled = dt_processor.scale_data([y_df.copy()], scaling=None)
+
         process_dt(df, X_scaled, y_scaled, dt_packager)
 
 
