@@ -247,10 +247,10 @@ class ModelConfig:
     }
 
     hyperparameters = {
-        'dt': {'criterion': 'absolute_error',
-                'max_depth': 8,
-                'min_samples_split': 4,
-                'min_samples_leaf': 4,
+        'dt': {'criterion': 'squared_error',
+                'max_depth': 5,
+                'min_samples_split': 2,
+                'min_samples_leaf': 1,
                 'min_impurity_decrease': 0,
                 'max_leaf_nodes': None,
                 'splitter': 'best'}, 

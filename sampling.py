@@ -115,26 +115,32 @@ class DT_Sampling(ActLearSampler):
         self.model_params = self.model_config.get_hyperparameters('dt')
         self.model_name = self.model_config.get_model_name('dt')
 
-    def load_dt_model(self):
+    def load_dt_model(self,load_model:str):
 
         # Instantiating the wrapper with the corresponding hyperparams
         model_instance = self.wrapper_model(**self.model_params)
 
-        best_model_path = os.path.join(self.bestmodel_savepath, self.model_name,'best_model.pkl')
+        dt_model = None
+        best_model_path = os.path.join(self.bestmodel_savepath, self.model_name, 'best_model.pkl')
 
-        if os.path.exists(best_model_path):
+        if load_model == 'y' and os.path.exists(best_model_path):
             # Load best trained model
-            dt_model = model_instance.load_model(best_model_path, is_mlp = False)
-
+            dt_model = model_instance.load_model(best_model_path, is_mlp=False)
         else:
-            print('-'*72)
-            print('Decision Tree model has not been trained yet, entering reg_train routine...')
-            print('-'*72)
+            print('-' * 72)
             
-            #train model
+            if load_model == 'y':
+                print('Decision Tree model has not been trained yet, entering reg_train routine...')
+            else:
+                print('Entering simple reg_train routine for DT model...')
+            
+            print('-' * 72)
+
+            # Train model
             self.train_dt_model()
-            #load trained model
-            dt_model = model_instance.load_model(best_model_path, is_mlp = False)
+
+            # Load the trained model
+            dt_model = model_instance.load_model(best_model_path, is_mlp=False)
 
         return dt_model
     
@@ -142,7 +148,7 @@ class DT_Sampling(ActLearSampler):
         
         #reg_train.py inputs to train a fresh dt if best model does not exist
         # asking for: first kfold, with sens?, hyperparam tune? final kfold with s?
-        inputs = [self.case, 'dt','y','y','y','y']
+        inputs = [self.case, 'dt','n','n','n','n']
 
         # Concatenate inputs into a single string separated by newline
         input_str = "\n".join(inputs)
@@ -217,8 +223,10 @@ class DT_Sampling(ActLearSampler):
         return the sample space (splitting rules) for resampling
         '''
 
+        load_model = input('Load pre-trained model (if available)? (y/n): ')
+        
         # initialize model instance
-        model = self.load_dt_model()
+        model = self.load_dt_model(load_model)
 
         # extract the splitting rules in the order of high to low MSE
         rules = self.extract_rules(model, X_df.columns)

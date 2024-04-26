@@ -82,7 +82,7 @@ def process_ini(df, X_scaled, y_scaled, dt_processor: DataProcessor, dt_packager
     X_ini, X_random, y_ini, y_random = train_test_split(X_scaled[-1], y_scaled[-1], test_size=0.2, random_state=2024)
     
     # train test splitting with filtered datapack from the initial dataset to be used
-    X_train, X_test, y_train, y_test = train_test_split(X_ini, y_ini, test_size=0.25, random_state=2024)
+    X_train, X_test, y_train, y_test = train_test_split(X_ini, y_ini, test_size=0.30, random_state=2024)
     print(f'Sizes of ini training: {X_train.shape[0]}; test: {X_test.shape[0]}; random: {X_random.shape[0]} ')
 
     # recombine filtered minmax cases into initial training data pack
