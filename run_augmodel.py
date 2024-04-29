@@ -73,7 +73,7 @@ def main():
     # Train model with new data, w/o further tuning or cross validation
     cv_options = {'do_kfold': False,
           'ksens' : False,
-          'do_hp_tune': False}
+          'do_hp_tune': True}
     
     re_trained_model = model_instance.model_train(data_packs, best_model,
                                cv_options, model_name)

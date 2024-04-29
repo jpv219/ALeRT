@@ -146,6 +146,17 @@ def process_dt(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager):
     # Package initial data sets
     dt_packager.package_data(data_pack,labels, datasample= 'dt')
 
+def clean_pkl(path):
+
+    file_list = os.listdir(path)
+
+    for file_name in file_list:
+        if file_name.endswith('.pkl'):
+
+            file_del = os.path.join(path,file_name)
+
+            os.remove(file_del)
+
 def main():
     
     case_name = input('Select a study to process raw datasets (sp_(sv)geom): ')
@@ -173,6 +184,11 @@ def main():
     print(f'The input and output parameters in this case study are: {param_idx}')
 
     if data_name == 'ini':
+
+        # clean previous files
+        scaler_path = os.path.join(PATH.input_savepath,case_name, 'ini')
+        clean_pkl(scaler_path)
+
         in_idx = input('Provide cut-off index between input and output params (first out idx): ')
 
         #Choose idx for output variables
