@@ -271,8 +271,8 @@ class Regressor(ABC,PathConfig):
         print('Evaluating final model performance')
         print('-'*72)
 
-        model_eval.plot_dispersion()
-        model_eval.plot_r2_hist()
+        model_eval.plot_overall_dispersion()
+        model_eval.plot_features_r2()
         model_eval.display_metrics()
 
 ############################# MLP PARENT CLASS ###########################################

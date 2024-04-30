@@ -10,9 +10,11 @@ import pandas as pd
 import pickle
 import os
 import shutil
+import re
 from functools import partial
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import seaborn as sns
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
@@ -1032,47 +1034,87 @@ class ModelEvaluator(PathConfig):
             return y_pred
  
 
-    def plot_dispersion(self):
+    def plot_overall_dispersion(self):
 
         y_pred_test = self.predict(self.X_test_df, self.y_test_df)
         y_pred_train = self.predict(self.X_train_df,self.y_train_df)
 
+        y_list = [self.y_train, self.y_test]
         y_pred_list = [y_pred_train,y_pred_test]
+        y_label_list = ['Training', 'Testing']
 
-        fig ,axes = plt.subplots(2, figsize=(8,6))
+        for i in range(len(y_label_list)):
+            fig,ax = plt.subplots(figsize=(8,6))
+            x_min = min(np.min(y_pred_list[i]), np.min(y_list[i]))
+            x_max = max(np.max(y_pred_list[i]), np.max(y_list[i]))
+            x = np.linspace(x_min,x_max,100)
 
-        for i, ax in enumerate(axes):
-            x = np.linspace(np.min(y_pred_list[i]),np.max(y_pred_list[i]),100)
-            y = x
-            pos_dev = -1 +1.2*(x+1)
-            neg_dev = -1 +0.8*(x+1)
+            ax.scatter(y_list[i],y_pred_list[i],edgecolor='k', c= y_list[i], cmap=COLOR_MAP)
+            # y=x
+            ax.plot(x, x,label = r'y=x', color = 'k', linewidth = 2.5)
+            # deviation lines
+            ax.plot(x, x*1.2, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')#-1 + (x+1)*1.2,
+            ax.plot(x, x*0.8, label = '-20%', color = 'b', linewidth = 1.5, linestyle = '--')#-1 + (x+1)*0.8,
 
-            ax.plot(x,y,label = 'x=y', color = 'k', linewidth = 2.5)
-            ax.plot(x,pos_dev, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')
-            ax.plot(x,neg_dev, label = '-20%', color = 'r', linewidth = 1.5, linestyle = '--')
-            ax.set_xlabel('True Data')
-            ax.set_ylabel('Predicted Data')
-            ax.legend()
-
-        axes[0].scatter(self.y_train, y_pred_train, edgecolor='k', c= self.y_train, cmap=COLOR_MAP)
-        axes[0].set_title('Training data dispersion plot')
-        axes[1].scatter(self.y_test, y_pred_test, edgecolor='k', c= self.y_test, cmap=COLOR_MAP)
-        axes[1].set_title('Testing data dispersion plot')
+            ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
+            ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
+            ax.tick_params(axis='both',labelsize=20)
         
-        plt.tight_layout()
-        plt.show()
+            ax.legend(fontsize=18)
+            ax.set_title(f'{y_label_list[i]} Data',fontweight='bold',fontsize=30)
+            fig.tight_layout()
+            fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_Pred_{y_label_list[i]}.png'),dpi=200)
+            plt.show()
     
-    def plot_r2_hist(self, num_bins = 10):
+    def plot_features_r2(self):
 
         y_pred = self.predict(self.X_test_df, self.y_test_df)
-        
-        r2 = r2_score(self.y_test, y_pred)
 
-        plt.figure(figsize=(8,6))
-        plt.hist(r2, num_bins, edgecolor = 'black')
-        plt.xlabel('R2_Score')
-        plt.ylabel('Frequency')
-        plt.title('R2 histogram')
+        # Calculate the r2 for each feature
+        # empty dictionary to store the r2 for all features
+        r2_values = {}
+        # allocate the columns on the prediction array
+        y_pred_df = pd.DataFrame(y_pred, columns=self.y_test_df.columns)
+        # extract all the reduced features, e.g., Q, E_max
+        pca_features = set(['_'.join(col.split('_')[:-1]) for col in y_pred_df.columns])
+        # calculate the r2 value for each features
+        fig1,ax = plt.subplots(figsize=(8,6))
+        colors = sns.color_palette('muted',len(pca_features))
+        for idx, feat in enumerate(pca_features):
+            pattern = re.compile(f'^{feat}_\d+$')
+            # extract all the columns related one feature
+            column_per_feat = [col for col in y_pred_df.columns if pattern.match(col)]
+            # slicing associated columns for y_pred_df and y_test_df
+            y_pred_slice = y_pred_df[column_per_feat].to_numpy()
+            y_test_slice = self.y_test_df[column_per_feat].to_numpy()
+            r2 = r2_score(y_test_slice,y_pred_slice)
+            r2_values[feat] = r2
+
+            # plot a dipsersion plot for each feature
+            ax.scatter(y_test_slice,y_pred_slice,edgecolor='k',color= colors[idx],label=f'{feat}')
+            ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
+            ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
+            ax.legend()
+        fig1.savefig(os.path.join(self.fig_savepath,f'{self._case}_Pred_test.png'),dpi=200)
+        plt.show()
+        
+        # Sort the keys based on the r2 values in descending order, Overall always at the last
+        sorted_keys = sorted(r2_values.keys(),key=lambda x: r2_values[x], reverse=True)
+        r2_values['Overall'] = r2_score(self.y_test, y_pred)
+        sorted_feat = sorted_keys + ['Overall']
+        sorted_values = [r2_values[key] for key in sorted_feat]
+
+        fig2 = plt.figure(figsize=(8,6))
+        plt.bar(sorted_feat,sorted_values, edgecolor='black')
+        # Add the values at the top of bars
+        for i, value in enumerate(sorted_values):
+            plt.text(i, value, f'{value:.3f}', ha='center',va='bottom',fontweight='bold')
+        plt.ylabel(r'$R^2$',fontsize=30)
+        plt.xticks(rotation=45)
+        plt.tick_params(axis='x',labelsize=20)
+        plt.tick_params(axis='y',labelsize=20)
+        fig2.tight_layout()
+        fig2.savefig(os.path.join(self.fig_savepath,f'{self._case}_R2.png'),dpi=200)
         plt.show()
 
     def display_metrics(self):

@@ -148,7 +148,7 @@ class DT_Sampling(ActLearSampler):
         
         #reg_train.py inputs to train a fresh dt if best model does not exist
         # asking for: first kfold, with sens?, hyperparam tune? final kfold with s?
-        inputs = [self.case, 'dt','n','n','n','n']
+        inputs = [self.case, 'dt','n','n','y','n']
 
         # Concatenate inputs into a single string separated by newline
         input_str = "\n".join(inputs)
@@ -251,7 +251,7 @@ class DT_Sampling(ActLearSampler):
 
 def main():
 
-    case = input('Select a study from where to load proccessed data packs (sp(sv)_geom): ')
+    case = input('Select a study from where to load proccessed data packs (sp_(sv)geom): ')
 
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
