@@ -6,6 +6,7 @@
 ##########################################################################
 
 import os
+import sys
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from paths import PathConfig
 from model_lib import ModelConfig
@@ -17,7 +18,7 @@ PATH = PathConfig()
 
 def main():
 
-    case = input('Select a study from where to load proccessed data packs (sp(sv)_geom): ')
+    case = input('Select a study from where to load proccessed data packs (sp_(sv)geom): ')
 
     dataloader = DataLoader(case)
     
@@ -102,7 +103,7 @@ def main():
     model_instance.save_model(tuned_model,best_model_path,is_mlp)
 
     # Calling model evaluate with tuned model
-    model_instance.model_evaluate(tuned_model, data_packs,case,pca, datasample = 'ini')
+    model_instance.model_evaluate(tuned_model, model_name, data_packs,case,pca, datasample = 'ini')
 
 if __name__ == "__main__":
     main()

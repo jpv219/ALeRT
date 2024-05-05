@@ -79,7 +79,7 @@ def main():
                                cv_options, model_name)
     
     # Calling model evaluate with tuned model
-    model_instance.model_evaluate(re_trained_model, data_packs,
+    model_instance.model_evaluate(re_trained_model, model_name, data_packs,
                                   case,pca, data_choice)
     
 

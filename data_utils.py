@@ -357,7 +357,7 @@ class DataProcessor(PathConfig):
                 ax[i,2].plot(reset_extreme[column])
                 ax[i,2].set_title(f'Scaled Data from extreme cases: {column}')
 
-        fig.savefig(os.path.join(self.fig_savepath,self._case, self._data, f'{self._case}_{data_label}'),dpi=200)
+        fig.savefig(os.path.join(self.fig_savepath, self._data, f'{self._case}_{data_label}'),dpi=200)
         plt.show()
     
     def PCA_reduction(self,df,var_ratio, datasample: str):
@@ -530,6 +530,14 @@ class DataLoader(PathConfig):
         
         return data_packs
     
+    def select_augmentdata(self,df,num_cases:int):
+
+        # shuffle df for randomisation
+        df_shuffled = df.sample(frac=1,random_state=2024)
+        df_selected = df_shuffled.iloc[:num_cases]
+        
+        return df_selected
+
     def augment_data(self,data_sample : str):
         
         data_aug_dir = os.path.join(self.resample_savepath, self.case, data_sample)
@@ -539,13 +547,27 @@ class DataLoader(PathConfig):
         ini_packs = self.load_packs(ini_data_dir)
 
         print('-'*72)
-        print(f'Augmenting {aug_packs[0].shape[0]} cases from sample {data_sample} to initial training data with initial size: {ini_packs[0].shape[0]}')
+        # print(f'Augmenting {aug_packs[0].shape[0]} cases from sample {data_sample} to initial training data with initial size: {ini_packs[0].shape[0]}')
+        print(f'Number of cases from sample {data_sample}: {aug_packs[0].shape[0]}.')
         print('-'*72)
 
-        # Augment training data with loaded sampled data
-        # data_packs[0] = X_train, data_packs[1] = y_train(ready as model input),  data_pack[-1] = Y_TRAIN_RAW
-        X_train_aug = pd.concat([ini_packs[0],aug_packs[0]], ignore_index= True)
-        y_train_aug_raw = pd.concat([ini_packs[-1],aug_packs[-1]], ignore_index= True)
+        # provide the number of cases to be augmented
+        num_rows = input('Provide the number of cases to be augmented or all:')
+
+        if num_rows.lower() == 'all':
+            # Augment training data with all loaded sampled data
+            # data_packs[0] = X_train, data_packs[1] = y_train(ready as model input),  data_pack[-1] = Y_TRAIN_RAW
+            X_train_aug = pd.concat([ini_packs[0],aug_packs[0]], ignore_index= True)
+            y_train_aug_raw = pd.concat([ini_packs[-1],aug_packs[-1]], ignore_index= True)
+        else:
+            num_cases = int(num_rows)
+            # select the cases depending on the num_cases
+            X_selected_aug = self.select_augmentdata(aug_packs[0],num_cases)
+            y_selected_aug = self.select_augmentdata(aug_packs[-1],num_cases)
+
+            # Augment training data with selected samples
+            X_train_aug = pd.concat([ini_packs[0],X_selected_aug], ignore_index= True)
+            y_train_aug_raw = pd.concat([ini_packs[-1],y_selected_aug], ignore_index= True)
 
         # perform either expand_target or PCA_reduction here
         dt_processor = DataProcessor(self.case, data_sample)

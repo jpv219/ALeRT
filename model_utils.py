@@ -979,10 +979,11 @@ class HyperParamTuning(PathConfig):
                     
 class ModelEvaluator(PathConfig):
 
-    def __init__(self, model, data_packs: list,case: str, pca:bool, datasample: str):
+    def __init__(self, model, modelname:str, data_packs: list,case: str, pca:bool, datasample: str):
         super().__init__()
 
         self.model = model
+        self.modelname = modelname
         self._case = case
         self.pca = pca
         self.datasample = datasample
@@ -1063,7 +1064,7 @@ class ModelEvaluator(PathConfig):
             ax.legend(fontsize=18)
             ax.set_title(f'{y_label_list[i]} Data',fontweight='bold',fontsize=30)
             fig.tight_layout()
-            fig.savefig(os.path.join(self.fig_savepath,f'{self._case}_Pred_{y_label_list[i]}.png'),dpi=200)
+            fig.savefig(os.path.join(self.fig_savepath, self.datasample, f'{self._case}_{self.modelname}_Pred_{y_label_list[i]}.png'),dpi=200)
             plt.show()
     
     def plot_features_r2(self):
@@ -1095,7 +1096,7 @@ class ModelEvaluator(PathConfig):
             ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
             ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
             ax.legend()
-        fig1.savefig(os.path.join(self.fig_savepath,f'{self._case}_Pred_test.png'),dpi=200)
+        fig1.savefig(os.path.join(self.fig_savepath,self.datasample,f'{self._case}_{self.modelname}_Pred_test.png'),dpi=200)
         plt.show()
         
         # Sort the keys based on the r2 values in descending order, Overall always at the last
@@ -1114,7 +1115,7 @@ class ModelEvaluator(PathConfig):
         plt.tick_params(axis='x',labelsize=20)
         plt.tick_params(axis='y',labelsize=20)
         fig2.tight_layout()
-        fig2.savefig(os.path.join(self.fig_savepath,f'{self._case}_R2.png'),dpi=200)
+        fig2.savefig(os.path.join(self.fig_savepath,self.datasample,f'{self._case}_{self.modelname}_R2.png'),dpi=200)
         plt.show()
 
     def display_metrics(self):
@@ -1125,6 +1126,8 @@ class ModelEvaluator(PathConfig):
         mse = mean_squared_error(self.y_test, y_pred)
         mae = mean_absolute_error(self.y_test, y_pred)
 
+        print('-'*72)
+        print(f'{self.modelname} Performance with {self.datasample} sampling')
         print('R2 Score: ', r2)
         print('Mean Squared Error: ', mse)
         print('Mean Absolute Error: ', mae)

@@ -115,7 +115,7 @@ class DT_Sampling(ActLearSampler):
         self.model_params = self.model_config.get_hyperparameters('dt')
         self.model_name = self.model_config.get_model_name('dt')
 
-    def load_dt_model(self,load_model:str):
+    def load_dt_model(self,load_model:str,data_packs):
 
         # Instantiating the wrapper with the corresponding hyperparams
         model_instance = self.wrapper_model(**self.model_params)
@@ -137,25 +137,46 @@ class DT_Sampling(ActLearSampler):
             print('-' * 72)
 
             # Train model
-            self.train_dt_model()
-
-            # Load the trained model
-            dt_model = model_instance.load_model(best_model_path, is_mlp=False)
+            dt_model = self.train_dt_model(data_packs)
 
         return dt_model
     
-    def train_dt_model(self):
+    def train_dt_model(self,data_packs):
         
-        #reg_train.py inputs to train a fresh dt if best model does not exist
-        # asking for: first kfold, with sens?, hyperparam tune? final kfold with s?
-        inputs = [self.case, 'dt','n','n','y','n']
+        # train dt model with different augemented data
+        # data packs
+        dataloader = DataLoader(self.case)
+        data_choice = 'dt'
+        pca = dataloader.pca
 
-        # Concatenate inputs into a single string separated by newline
-        input_str = "\n".join(inputs)
+        # Model configurer
+        m_config = ModelConfig()
+        
+        # selecting corresponding wrapper, hyperparams and model_name
+        model_choice = 'dt'
+        wrapper_model = m_config.get_wrapper(model_choice)
+        model_params = m_config.get_hyperparameters(model_choice)
+        model_name = m_config.get_model_name(model_choice)
 
-        # Provide input using subprocess.Popen
-        proc = subprocess.Popen(['python', 'reg_train.py'], stdin=subprocess.PIPE)
-        proc.communicate(input=input_str.encode())  # Encode input string to bytes
+        # Instantiating the wrapper with the corresponding hyperparams
+        model_instance = wrapper_model(**model_params)
+
+        # Getting regressor object from wrapper
+        model = model_instance.init_model()
+
+        # Train model with new data, w/o further tuning or cross validation
+        cv_options = {'do_kfold': False,
+            'ksens' : False,
+            'do_hp_tune': False}
+        
+        trained_dt_model = model_instance.model_train(data_packs, model,
+                                cv_options, model_name)
+        
+        # Calling model evaluate with tuned model
+        model_instance.model_evaluate(trained_dt_model, model_name, data_packs,
+                                    self.case,pca, data_choice)
+        
+        return trained_dt_model
     
     def extract_rules(self, tree, feature_names):
         tree_ = tree.tree_ # stores the entire binary tree structure, represented as a number of parallel array
@@ -182,7 +203,7 @@ class DT_Sampling(ActLearSampler):
                 scaled_threshold = tree_.threshold[node].reshape(-1,1)
 
                 # load the corresponding scaler for the feature: split name for file saving problem
-                with open(os.path.join(self.scaler_folder,f'scaler_{name.split()[0]}.pkl'),'rb') as f:
+                with open(os.path.join(self.scaler_folder,f'scaler_X_{name.split()[0]}.pkl'),'rb') as f:
                     scaler = pickle.load(f)
 
                 # scale the threshold value back to its original ranges and convert back to type of numpy.float64
@@ -218,7 +239,7 @@ class DT_Sampling(ActLearSampler):
 
         return rules
 
-    def generate_rules(self, X_df: pd.DataFrame):
+    def generate_rules(self, data_packs, savepath):
         '''
         return the sample space (splitting rules) for resampling
         '''
@@ -226,17 +247,17 @@ class DT_Sampling(ActLearSampler):
         load_model = input('Load pre-trained model (if available)? (y/n): ')
         
         # initialize model instance
-        model = self.load_dt_model(load_model)
+        model = self.load_dt_model(load_model,data_packs)
 
         # extract the splitting rules in the order of high to low MSE
-        rules = self.extract_rules(model, X_df.columns)
+        rules = self.extract_rules(model, data_packs[0].columns)
 
         # Save the feature importantce
-        fi_df = pd.DataFrame(columns=X_df.columns)
+        fi_df = pd.DataFrame(columns=data_packs[0].columns)
         fi_df.loc[len(fi_df)] = model.feature_importances_
         fi_df_T = fi_df.transpose()
         fi_df_T = fi_df_T.sort_values(by=fi_df_T.columns[0],ascending=False)
-        fi_df_T.to_pickle(os.path.join(self.resample_savepath,self.case,'dt','log_rules',f'resample_FI.pkl'))
+        fi_df_T.to_pickle(os.path.join(savepath,f'resample_FI.pkl'))
 
         # Visualize the feature important and save the plot
         fig = plt.figure(figsize=(8,6))
@@ -244,7 +265,7 @@ class DT_Sampling(ActLearSampler):
         plt.xlabel(r'Geometry Parameters', fontsize=20)
         plt.ylabel(r'Feature Importance', fontsize=20)
         plt.xticks(rotation=45)
-        fig.savefig(os.path.join(self.fig_savepath,self.case,'dt',f'{self.case}_FI.png'),dpi=200)
+        fig.savefig(os.path.join(self.fig_savepath,'dt',f'{self.case}_FI.png'),dpi=200)
         plt.show()
 
         return rules
@@ -263,19 +284,36 @@ def main():
     dataloader = DataLoader(case)
     
     inidata_dir = os.path.join(PATH.input_savepath, case, 'ini')
+    resample_dir = os.path.join(PATH.resample_savepath, case, sampler_choice)
 
-    data_packs = dataloader.load_packs(inidata_dir)
+    inidata_packs = dataloader.load_packs(inidata_dir)
 
-    # Input the extracted data
-    X_ini_df = data_packs[0]
-
-    rules = sampler.generate_rules(X_ini_df)
+    # get all the available trials in the resample folder 
+    trial_list = [f.name for f in os.scandir(resample_dir) if f.is_dir()]
     
+    # generate the new trial folder
+    new_trial_folder = os.path.join(resample_dir,f'trial{len(trial_list)+1}')
+    if not os.path.exists(new_trial_folder):
+        os.makedirs(new_trial_folder)
+    
+    if len(trial_list) == 0:
+        print('-'*72)
+        print(f'No previous sampling detected. Using initial training dataset for sampling now ...')
+        print('-'*72)
+        rules = sampler.generate_rules(inidata_packs,new_trial_folder)
+    else:
+        print('-'*72)
+        print(f'Sampling rules generating for {sampler_choice} Trial {len(trial_list)+1} ...')
+        print('-'*72)
+
+        aug_packs = dataloader.augment_data(sampler_choice)
+        rules = sampler.generate_rules(aug_packs,new_trial_folder)
+
     # store rules to local log file
-    with open(os.path.join(PATH.resample_savepath,case,sampler_choice,'log_rules',f'{sampler_choice}_rules.log'), 'w') as file:
+    with open(os.path.join(new_trial_folder,f'{sampler_choice}_rules.log'), 'w') as file:
         for r in rules:
             file.write(r+'\n')
-            print(r)
+            # print(r)
     
 
 if __name__ == "__main__":
