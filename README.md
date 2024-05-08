@@ -14,72 +14,74 @@ Welcome to the ALeRT (Active Learning Regression Toolbox) repository! This proje
 
 Here's an overview of the file and folder structure in this repository:
 
+```plaintext
+.
 ├── base_model.py
 ├── best_models
-│   ├── Decision_Tree
-│   ├── K_Nearest_Neighbours
-│   ├── MLP_Branched_Network
-│   ├── Multi_Layer_Perceptron
-│   ├── Random_Forest
-│   ├── Support_Vector_Machine
-│   └── XGBoost
+│   ├── Decision_Tree
+│   ├── K_Nearest_Neighbours
+│   ├── MLP_Branched_Network
+│   ├── Multi_Layer_Perceptron
+│   ├── Random_Forest
+│   ├── Support_Vector_Machine
+│   └── XGBoost
 ├── config
-│   └── config_paths.ini
+│   └── config_paths.ini
 ├── csv_data
-│   └── sp_geom
-│       ├── dt
-│       ├── ini
+│   └── sp_geom
+│       ├── dt
+│       ├── ini
 ├── data_utils.py
 ├── DOE
-│   └── sp_geom
-│       ├── dt
-│       ├── ini
+│   └── sp_geom
+│       ├── dt
+│       ├── ini
 ├── figs
-│   └── sp_geom
-│       ├── dt
-│       ├── ini
-│       └── random
+│   └── sp_geom
+│       ├── dt
+│       ├── ini
+│       └── random
 ├── input_data
-│   └── sp_geom
-│       └── ini
+│   └── sp_geom
+│       └── ini
 ├── input.py
 ├── model_lib.py
 ├── models
-│   ├── Decision_Tree
-│   │   └── hyperparam_tune
-│   ├── K_Nearest_Neighbours
-│   │   └── hyperparam_tune
-│   ├── MLP_Branched_Network
-│   │   └── hyperparam_tune
-│   ├── Multi_Layer_Perceptron
-│   │   └── hyperparam_tune
-│   ├── Random_Forest
-│   │   └── hyperparam_tune
-│   ├── Support_Vector_Machine
-│   │   └── hyperparam_tune
-│   └── XGBoost
-│       └── hyperparam_tune
+│   ├── Decision_Tree
+│   │   └── hyperparam_tune
+│   ├── K_Nearest_Neighbours
+│   │   └── hyperparam_tune
+│   ├── MLP_Branched_Network
+│   │   └── hyperparam_tune
+│   ├── Multi_Layer_Perceptron
+│   │   └── hyperparam_tune
+│   ├── Random_Forest
+│   │   └── hyperparam_tune
+│   ├── Support_Vector_Machine
+│   │   └── hyperparam_tune
+│   └── XGBoost
+│       └── hyperparam_tune
 ├── model_utils.py
 ├── paths.py
 ├── pca_models
-│   └── sp_geom
-│       ├── dt
-│       ├── ini
-│       └── random
+│   └── sp_geom
+│       ├── dt
+│       ├── ini
+│       └── random
 ├── reg_train.py
 ├── resample
-│   └── sp_geom
-│       ├── dt
-│       │   ├── log_rules
-│       │   │   ├── dt_rules_1.log
-│       │   │   ├── dt_rules_2.log
-│       ├── gsx
-│       │   └── log_rules
-│       │       └── gsx_rules.log
-│       └── random
+│   └── sp_geom
+│       ├── dt
+│       │   ├── log_rules
+│       │   │   ├── dt_rules_1.log
+│       │   │   ├── dt_rules_2.log
+│       ├── gsx
+│       │   └── log_rules
+│       │       └── gsx_rules.log
+│       └── random
 ├── run_augmodel.py
 └── sampling.py
-
+```
 
 ## Usage
 
