@@ -47,7 +47,7 @@ class GSX_Sampling(ActLearSampler):
         for column in X_df.columns:
         
             # load the corresponding scaler for the feature: split name for file saving problem
-            with open(os.path.join(self.scaler_folder,f'scaler_{column.split()[0]}.pkl'),'rb') as f:
+            with open(os.path.join(self.scaler_folder,f'scaler_X_{column.split()[0]}.pkl'),'rb') as f:
                 scaler = pickle.load(f)
             
             # scale the threshold value back to its original ranges and convert back to type of numpy.float64
@@ -277,7 +277,7 @@ def main():
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
     AL_samplers = {'dt': DT_Sampling(case),
-                   'gsx': GSX_Sampling(case, num_samples=15)}
+                   'gsx': GSX_Sampling(case, num_samples=50)}
     
     sampler = AL_samplers.get(sampler_choice)
 

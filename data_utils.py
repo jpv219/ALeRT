@@ -357,7 +357,7 @@ class DataProcessor(PathConfig):
                 ax[i,2].plot(reset_extreme[column])
                 ax[i,2].set_title(f'Scaled Data from extreme cases: {column}')
 
-        fig.savefig(os.path.join(self.fig_savepath, self._data, f'{self._case}_{data_label}'),dpi=200)
+        fig.savefig(os.path.join(self.fig_savepath, self._case, self._data,f'{data_label}'),dpi=200)
         plt.show()
     
     def PCA_reduction(self,df,var_ratio, datasample: str):
