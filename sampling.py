@@ -149,17 +149,8 @@ class DT_Sampling(ActLearSampler):
         data_choice = 'dt'
         pca = dataloader.pca
 
-        # Model configurer
-        m_config = ModelConfig()
-        
-        # selecting corresponding wrapper, hyperparams and model_name
-        model_choice = 'dt'
-        wrapper_model = m_config.get_wrapper(model_choice)
-        model_params = m_config.get_hyperparameters(model_choice)
-        model_name = m_config.get_model_name(model_choice)
-
         # Instantiating the wrapper with the corresponding hyperparams
-        model_instance = wrapper_model(**model_params)
+        model_instance = self.wrapper_model(**self.model_params)
 
         # Getting regressor object from wrapper
         model = model_instance.init_model()
@@ -170,10 +161,10 @@ class DT_Sampling(ActLearSampler):
             'do_hp_tune': False}
         
         trained_dt_model = model_instance.model_train(data_packs, model,
-                                cv_options, model_name)
+                                cv_options, self.model_name)
         
         # Calling model evaluate with tuned model
-        model_instance.model_evaluate(trained_dt_model, model_name, data_packs,
+        model_instance.model_evaluate(trained_dt_model, self.model_name, data_packs,
                                     self.case,pca, data_choice)
         
         return trained_dt_model
@@ -265,7 +256,7 @@ class DT_Sampling(ActLearSampler):
         plt.xlabel(r'Geometry Parameters', fontsize=20)
         plt.ylabel(r'Feature Importance', fontsize=20)
         plt.xticks(rotation=45)
-        fig.savefig(os.path.join(self.fig_savepath,'dt',f'{self.case}_FI.png'),dpi=200)
+        fig.savefig(os.path.join(self.fig_savepath,self.case,'dt',f'Feature_Importance.png'),dpi=200)
         plt.show()
 
         return rules
