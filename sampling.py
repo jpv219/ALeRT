@@ -57,7 +57,9 @@ class GSX_Sampling(ActLearSampler):
         
         return inv_X_df
 
-    def generate_rules(self, X_df:pd.DataFrame):
+    def generate_rules(self, datapacks, savepath):
+        
+        X_df = datapacks[0]
         
         inv_X_df = self.inverse_transform_scaling(X_df)
         
@@ -83,6 +85,8 @@ class GSX_Sampling(ActLearSampler):
 
         # Collect selected samples outside the loop
         selected_samples = inv_X_df.iloc[selected_indices]
+
+        selected_samples.to_pickle(os.path.join(savepath,'gsx_df.pkl'))
 
         rules = ['Cases to sample from GSx',str(list(selected_samples.columns))]
 
@@ -268,7 +272,7 @@ def main():
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
     AL_samplers = {'dt': DT_Sampling(case),
-                   'gsx': GSX_Sampling(case, num_samples=50)}
+                   'gsx': GSX_Sampling(case, num_samples=60)}
     
     sampler = AL_samplers.get(sampler_choice)
 
@@ -287,7 +291,13 @@ def main():
     if not os.path.exists(new_trial_folder):
         os.makedirs(new_trial_folder)
     
-    if len(trial_list) == 0:
+    if sampler_choice == 'gsx':
+        print('-'*72)
+        print(f'Running GSx sampling')
+        print('-'*72)
+        rules = sampler.generate_rules(inidata_packs,new_trial_folder)
+    
+    elif len(trial_list) == 0 and sampler_choice == 'dt':
         print('-'*72)
         print(f'No previous sampling detected. Using initial training dataset for sampling now ...')
         print('-'*72)
@@ -304,7 +314,7 @@ def main():
     with open(os.path.join(new_trial_folder,f'{sampler_choice}_rules.log'), 'w') as file:
         for r in rules:
             file.write(r+'\n')
-            # print(r)
+            print(r)
     
 
 if __name__ == "__main__":
