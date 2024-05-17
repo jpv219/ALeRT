@@ -9,7 +9,6 @@ import numpy as np
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import pickle
-import subprocess
 # For the models
 from sklearn.tree import _tree
 from data_utils import DataLoader

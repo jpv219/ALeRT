@@ -130,7 +130,7 @@ def process_ini(case_name, df, X_scaled, y_scaled, dt_processor: DataProcessor, 
 
     dt_packager.package_data(random_pack, random_labels, datasample='random')
 
-def process_dt(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager):
+def process_aug(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager, datasample : str):
     """
     Process resampled data following decision tree (dt) active sampling.
 
@@ -148,10 +148,10 @@ def process_dt(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager):
 
     # Package data for further use training and deploying regression models
     data_pack = [df,X_train,y_train]
-    labels = ['full','X_train_dt','y_train_dt_raw']
+    labels = ['full',f'X_train_{datasample}',f'y_train_{datasample}_raw']
     
     # Package initial data sets
-    dt_packager.package_data(data_pack,labels, datasample= 'dt')
+    dt_packager.package_data(data_pack,labels, datasample= datasample)
 
 def clean_pkl(path):
 
@@ -168,7 +168,7 @@ def main():
     
     case_name = input('Select a study to process raw datasets (sp_(sv)geom): ')
 
-    data_name = input('Select a dataset to process from the study selected above (ini, dt): ')
+    data_name = input('Select a dataset to process from the study selected above (ini, dt, gsx): ')
        
     dt_reader = DataReader(case_name,data_name)
     dt_processor = DataProcessor(case_name, data_name)
@@ -211,7 +211,7 @@ def main():
     
         process_ini(case_name, df, X_scaled, y_scaled, dt_processor, dt_packager)
 
-    elif data_name == 'dt':
+    else:
         # extract the columns from ini pre-processing
         scaler_path = os.path.join(PATH.input_savepath,case_name, 'ini')
         file_names = os.listdir(scaler_path)
@@ -226,7 +226,7 @@ def main():
         X_scaled = dt_processor.scale_data([X_df.copy()], scaling=None)
         y_scaled = dt_processor.scale_data([y_df.copy()], scaling=None)
 
-        process_dt(df, X_scaled, y_scaled, dt_packager)
+        process_aug(df, X_scaled, y_scaled, dt_packager, data_name)
 
 
 if __name__ == "__main__":
