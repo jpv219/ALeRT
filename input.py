@@ -144,7 +144,7 @@ def process_aug(df:pd.DataFrame, X_scaled, y_scaled, dt_packager: DataPackager, 
     # train test splitting with filtered datapack from the initial dataset to be used
     X_train, y_train = X_scaled[-1], y_scaled[-1]
 
-    print(f'Sizes of dt training set: {X_train.shape[0]} ')
+    print(f'Sizes of {datasample} training set: {X_train.shape[0]} ')
 
     # Package data for further use training and deploying regression models
     data_pack = [df,X_train,y_train]
