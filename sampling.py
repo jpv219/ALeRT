@@ -65,7 +65,7 @@ class GSX_Sampling(ActLearSampler):
         selected_indices = []
 
         # Select one random case as initial sample
-        initial_index = np.random.randint(0, len(inv_X_df))
+        initial_index = 35#np.random.randint(0, len(inv_X_df))
         selected_indices.append(initial_index)
 
         while len(selected_indices) < self.num_samples:
@@ -271,16 +271,18 @@ def main():
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
     AL_samplers = {'dt': DT_Sampling(case),
-                   'gsx': GSX_Sampling(case, num_samples=60)}
+                   'gsx': GSX_Sampling(case, num_samples=30)}
     
     sampler = AL_samplers.get(sampler_choice)
 
     dataloader = DataLoader(case)
     
     inidata_dir = os.path.join(PATH.input_savepath, case, 'ini')
+    random_dir = os.path.join(PATH.resample_savepath,case,'random')
     resample_dir = os.path.join(PATH.resample_savepath, case, sampler_choice)
 
     inidata_packs = dataloader.load_packs(inidata_dir)
+    random_packs = dataloader.load_packs(random_dir)
 
     # get all the available trials in the resample folder 
     trial_list = [f.name for f in os.scandir(resample_dir) if f.is_dir()]
@@ -294,7 +296,7 @@ def main():
         print('-'*72)
         print(f'Running GSx sampling')
         print('-'*72)
-        rules = sampler.generate_rules(inidata_packs,new_trial_folder)
+        rules = sampler.generate_rules(random_packs,new_trial_folder)
     
     elif len(trial_list) == 0 and sampler_choice == 'dt':
         print('-'*72)

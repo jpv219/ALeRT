@@ -533,8 +533,8 @@ class DataLoader(PathConfig):
     def select_augmentdata(self,df,num_cases:int):
 
         # shuffle df for randomisation
-        df_shuffled = df.sample(frac=1,random_state=2024)
-        df_selected = df_shuffled.iloc[:num_cases]
+        # df_shuffled = df.sample(frac=1,random_state=2024)
+        df_selected = df.iloc[:num_cases]
         
         return df_selected
 
