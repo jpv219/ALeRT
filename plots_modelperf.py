@@ -29,16 +29,26 @@ def main():
     
     # Global paths configuration
     PATH = PathConfig()
+    # Model configurer
+    m_config = ModelConfig()
+    
+    # selecting corresponding wrapper, hyperparams and model_name
+    wrapper_model = m_config.get_wrapper(model_choice)
+    model_params = m_config.get_hyperparameters(model_choice)
+    model_name = m_config.get_model_name(model_choice)
 
     # Empty dataframe for storing
     df_savepath = os.path.join(PATH.fig_savepath,case_name,f'{model_choice}_perf.csv')
     
+    ##################################################
+    ### Model training or model plotting
+    ###################################################
+    ### Model training
     if not os.path.exists(df_savepath):
         print('-'*72)
         print('No CSV is saved for plotting model performance, initial model is about to be trained....')
         print('-'*72)
     
-
         df = pd.DataFrame()
 
         #################################################
@@ -52,14 +62,6 @@ def main():
         data_packs = dataloader.load_packs(inidata_dir)
         case_num = len(data_packs[0])
         pca = dataloader.pca
-
-        # Model configurer
-        m_config = ModelConfig()
-        
-        # selecting corresponding wrapper, hyperparams and model_name
-        wrapper_model = m_config.get_wrapper(model_choice)
-        model_params = m_config.get_hyperparameters(model_choice)
-        model_name = m_config.get_model_name(model_choice)
 
         # Add input_size, output_size and n_features for MLP models and negate early kfold
         if model_choice in ['mlp', 'mlp_br']:
@@ -203,6 +205,8 @@ def main():
                 print('-'*72)
                 print(f'csv saved with performance based on {data_choice} of cases {case_num}.')
                 print('-'*72)
+    
+    ### Model training
     else:
         print('-'*72)
         print(f'{model_choice} CSV is saved. Start plotting...')
@@ -210,73 +214,80 @@ def main():
 
         df = pd.read_csv(df_savepath)
 
-        # Load the best models
-        if model_choice in ['mlp', 'mlp_br']:
-                    is_mlp = True
-                    best_model_path = os.path.join(PATH.bestmodel_savepath, model_name,'best_model.keras')
-
-        else:
-            is_mlp = False
-            best_model_path = os.path.join(PATH.bestmodel_savepath, model_name,'best_model.pkl')
-
-        # Instantiating the wrapper with the corresponding hyperparams
-        model_instance = wrapper_model(**model_params)
-
-        best_model = model_instance.load_model(best_model_path, is_mlp)
-
-        dataloader = DataLoader(case_name)
-    
-        data_choice_list = ['ini','random', 'dt', 'gsx']
+        plot_perf = input('Plot model performance for each sampling strategies? (y/n):')
         
-        # evaluation and plotting
-        for data_choice in data_choice_list:
-            if data_choice == 'ini':
-                inidata_dir = os.path.join(PATH.input_savepath, case_name, 'ini')
-                data_packs = dataloader.load_packs(inidata_dir)
+        if plot_perf.lower() == 'yes' or plot_perf.lower() == 'y':
+            # Load the best models
+            if model_choice in ['mlp', 'mlp_br']:
+                        is_mlp = True
+                        best_model_path = os.path.join(PATH.bestmodel_savepath, model_name,'best_model.keras')
+
             else:
-                data_packs = dataloader.augment_data(data_choice)
-            pca = dataloader.pca
+                is_mlp = False
+                best_model_path = os.path.join(PATH.bestmodel_savepath, model_name,'best_model.pkl')
+
+            # Instantiating the wrapper with the corresponding hyperparams
+            model_instance = wrapper_model(**model_params)
+
+            best_model = model_instance.load_model(best_model_path, is_mlp)
+
+            dataloader = DataLoader(case_name)
+        
+            data_choice_list = ['ini','random', 'dt', 'gsx']
             
-            model_instance.model_evaluate(best_model, model_name, data_packs,case_name,pca,datasample = data_choice)
+            # evaluation and plotting
+            for data_choice in data_choice_list:
+                if data_choice == 'ini':
+                    inidata_dir = os.path.join(PATH.input_savepath, case_name, 'ini')
+                    data_packs = dataloader.load_packs(inidata_dir)
+                else:
+                    data_packs = dataloader.augment_data(data_choice)
+                pca = dataloader.pca
+                
+                model_instance.model_evaluate(best_model, model_name, data_packs,case_name,pca,datasample = data_choice)
 
     #################################################
     # Plot the performance with scatter plot
     #################################################
-    
-    metrics_list = ['r2', 'mae', 'mse']
-    label_list = {'r2': r'$R^2$', 'mae':r'MAE', 'mse':r'MSE'}
-    for metrics_choice in metrics_list:
-        fig = plt.figure(figsize=(7.5,6))
-        y_label = label_list.get(metrics_choice,metrics_choice)
-        plotting_col = [col for col in df.columns if metrics_choice in col]
-        
-        ini_col = [col for col in plotting_col if 'ini' in col]
-        ini_x = int(ini_col[0].split('_')[-1])
-        ini_y = df[ini_col]
-        plt.scatter(ini_x,ini_y,label=r'Initial',c='black',marker='o',s=35)
-        
-        random_col = [col for col in plotting_col if 'random' in col]
-        random_x = [int(col.split('_')[-1]) for col in random_col]
-        random_y = df[random_col]
-        plt.scatter(random_x,random_y,label=r'Random',marker='x',s=35)
+    plot_impv = input('Plot model improvement comparing samplings? (y/n):')
 
-        dt_col = [col for col in plotting_col if 'dt' in col]
-        dt_x = [int(col.split('_')[-1]) for col in dt_col]
-        dt_y = df[dt_col]
-        plt.scatter(dt_x,dt_y,label=r'DT-guided',marker='v',s=35)
+    if plot_impv.lower() == 'yes' or plot_impv.lower() == 'y':
+        metrics_list = ['r2', 'mae', 'mse']
+        label_list = {'r2': r'$R^2$', 'mae':r'MAE', 'mse':r'MSE'}
+        for metrics_choice in metrics_list:
+            fig = plt.figure(figsize=(7.5,6))
+            y_label = label_list.get(metrics_choice,metrics_choice)
+            plotting_col = [col for col in df.columns if metrics_choice in col]
+            
+            ini_col = [col for col in plotting_col if 'ini' in col]
+            ini_x = int(ini_col[0].split('_')[-1])
+            ini_y = df[ini_col]
+            plt.scatter(ini_x,ini_y,label=r'Initial',c='black',marker='o',s=100)
+            
+            random_col = [col for col in plotting_col if 'random' in col]
+            random_x = [int(col.split('_')[-1]) for col in random_col]
+            random_y = df[random_col]
+            plt.scatter(random_x,random_y,label=r'Random',marker='x',s=100)
 
-        gsx_col = [col for col in plotting_col if 'gsx' in col]
-        gsx_x = [int(col.split('_')[-1]) for col in gsx_col]
-        gsx_y = df[gsx_col]
-        plt.scatter(gsx_x,gsx_y,label=r'GSx',marker='s',s=35)
-        
-        legend = plt.legend(fontsize=20,bbox_to_anchor=(1.07, 1.15),ncols=4,columnspacing=0.5,handletextpad=0.1)
-        legend.get_frame().set_linewidth(1.5)
-        legend.get_frame().set_edgecolor("black")
-        plt.xlabel(r'Case Number',fontsize=25,fontweight='bold')
-        plt.ylabel(f'{y_label}',fontsize=25,fontweight='bold')
-        fig.savefig(os.path.join(PATH.fig_savepath,case_name,f'{model_choice}_{metrics_choice}_perf.png'))
-        plt.show()
+            dt_col = [col for col in plotting_col if 'dt' in col]
+            dt_x = [int(col.split('_')[-1]) for col in dt_col]
+            dt_y = df[dt_col]
+            plt.scatter(dt_x,dt_y,label=r'DT-guided',marker='v',s=100)
+
+            gsx_col = [col for col in plotting_col if 'gsx' in col]
+            gsx_x = [int(col.split('_')[-1]) for col in gsx_col]
+            gsx_y = df[gsx_col]
+            plt.scatter(gsx_x,gsx_y,label=r'GSx',marker='s',s=100)
+            
+            legend = plt.legend(fontsize=20,bbox_to_anchor=(1.07, 1.18),ncols=4,columnspacing=0.5,handletextpad=0.1)
+            legend.get_frame().set_linewidth(1.5)
+            legend.get_frame().set_edgecolor("black")
+            plt.xlabel(r'Case Number',fontsize=35,fontweight='bold')
+            plt.ylabel(f'{y_label}',fontsize=35,fontweight='bold')
+            plt.tick_params(labelsize=18)
+            fig.tight_layout()
+            fig.savefig(os.path.join(PATH.fig_savepath,case_name,f'{model_choice}_{metrics_choice}_perf.png'))
+            plt.show()
 
     print('Good job')
 

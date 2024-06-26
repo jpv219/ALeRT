@@ -1043,29 +1043,33 @@ class ModelEvaluator(PathConfig):
         y_list = [self.y_train, self.y_test]
         y_pred_list = [y_pred_train,y_pred_test]
         y_label_list = ['Training', 'Testing']
+        color_list = ['blue','orange']
+        
+        fig,ax = plt.subplots(figsize=(8,6))
 
         for i in range(len(y_label_list)):
-            fig,ax = plt.subplots(figsize=(8,6))
+            
             x_min = min(np.min(y_pred_list[i]), np.min(y_list[i]))
             x_max = max(np.max(y_pred_list[i]), np.max(y_list[i]))
             x = np.linspace(x_min,x_max,100)
 
-            ax.scatter(y_list[i],y_pred_list[i],edgecolor='k', c= y_list[i], cmap=COLOR_MAP)
-            # y=x
-            ax.plot(x, x,label = r'y=x', color = 'k', linewidth = 2.5)
-            # deviation lines
-            ax.plot(x, x*1.2, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')#-1 + (x+1)*1.2,
-            ax.plot(x, x*0.8, label = '-20%', color = 'b', linewidth = 1.5, linestyle = '--')#-1 + (x+1)*0.8,
+            ax.scatter(y_list[i][::25],y_pred_list[i][::25],marker='+',c=color_list[i],label=f'{y_label_list[i]} Data')#edgecolor='k', c= y_list[i], cmap=COLOR_MAP)
+            
+        # y=x
+        ax.plot(x, x,label = r'y=x', color = 'k', linewidth = 2, linestyle='--')
+        # deviation band
+        dispersion = 0.2*np.abs(x)
+        plt.fill_between(x,x-dispersion,x+dispersion,color='gray',alpha=0.2,label=r'$20\%$ Dispersion')
 
-            ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
-            ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
-            ax.tick_params(axis='both',labelsize=20)
-        
-            ax.legend(fontsize=18)
-            ax.set_title(f'{y_label_list[i]} Data',fontweight='bold',fontsize=30)
-            fig.tight_layout()
-            fig.savefig(os.path.join(self.fig_savepath, self._case, self.datasample, f'{self.modelname}_Pred_{y_label_list[i]}.png'),dpi=200)
-            plt.show()
+        ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
+        ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
+        ax.tick_params(axis='both',labelsize=20)
+    
+        ax.legend(fontsize=20)
+        # ax.set_title(f'{y_label_list[i]} Data',fontweight='bold',fontsize=30)
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.fig_savepath, self._case, self.datasample, f'{self.modelname}_Pred.png'),dpi=200)
+        plt.show()
     
     def plot_features_r2(self):
 
@@ -1082,6 +1086,7 @@ class ModelEvaluator(PathConfig):
         fig1,ax = plt.subplots(figsize=(8,6))
         colors = sns.color_palette('muted',len(pca_features))
         for idx, feat in enumerate(pca_features):
+            feat_label = {'Ur':r'$u_x$'}
             pattern = re.compile(f'^{feat}_\d+$')
             # extract all the columns related one feature
             column_per_feat = [col for col in y_pred_df.columns if pattern.match(col)]
@@ -1092,31 +1097,31 @@ class ModelEvaluator(PathConfig):
             r2_values[feat] = r2
 
             # plot a dipsersion plot for each feature
-            ax.scatter(y_test_slice,y_pred_slice,edgecolor='k',color= colors[idx],label=f'{feat}')
+            ax.scatter(y_test_slice[::25],y_pred_slice[::25],edgecolor='k',color= colors[idx],label=f'{feat_label.get(feat,feat)}')
             ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
             ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
-            ax.legend()
+            ax.legend(fontsize=25,handletextpad=0.2)
         fig1.savefig(os.path.join(self.fig_savepath, self._case, self.datasample,f'{self.modelname}_Pred_test.png'),dpi=200)
         plt.show()
         
-        # Sort the keys based on the r2 values in descending order, Overall always at the last
-        sorted_keys = sorted(r2_values.keys(),key=lambda x: r2_values[x], reverse=True)
-        r2_values['Overall'] = r2_score(self.y_test, y_pred)
-        sorted_feat = sorted_keys + ['Overall']
-        sorted_values = [r2_values[key] for key in sorted_feat]
+        # # Sort the keys based on the r2 values in descending order, Overall always at the last
+        # sorted_keys = sorted(r2_values.keys(),key=lambda x: r2_values[x], reverse=True)
+        # r2_values['Overall'] = r2_score(self.y_test, y_pred)
+        # sorted_feat = sorted_keys + ['Overall']
+        # sorted_values = [r2_values[key] for key in sorted_feat]
 
-        fig2 = plt.figure(figsize=(8,6))
-        plt.bar(sorted_feat,sorted_values, edgecolor='black')
-        # Add the values at the top of bars
-        for i, value in enumerate(sorted_values):
-            plt.text(i, value, f'{value:.3f}', ha='center',va='bottom',fontweight='bold')
-        plt.ylabel(r'$R^2$',fontsize=30)
-        plt.xticks(rotation=45)
-        plt.tick_params(axis='x',labelsize=20)
-        plt.tick_params(axis='y',labelsize=20)
-        fig2.tight_layout()
-        fig2.savefig(os.path.join(self.fig_savepath,self._case, self.datasample,f'{self.modelname}_R2.png'),dpi=200)
-        plt.show()
+        # fig2 = plt.figure(figsize=(8,6))
+        # plt.bar(sorted_feat,sorted_values, edgecolor='black')
+        # # Add the values at the top of bars
+        # for i, value in enumerate(sorted_values):
+        #     plt.text(i, value, f'{value:.3f}', ha='center',va='bottom',fontweight='bold')
+        # plt.ylabel(r'$R^2$',fontsize=30)
+        # plt.xticks(rotation=45)
+        # plt.tick_params(axis='x',labelsize=20)
+        # plt.tick_params(axis='y',labelsize=20)
+        # fig2.tight_layout()
+        # fig2.savefig(os.path.join(self.fig_savepath,self._case, self.datasample,f'{self.modelname}_R2.png'),dpi=200)
+        # plt.show()
 
     def display_metrics(self):
 
