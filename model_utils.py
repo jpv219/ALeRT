@@ -10,9 +10,11 @@ import pandas as pd
 import pickle
 import os
 import shutil
+import re
 from functools import partial
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import seaborn as sns
 from typing import Union
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from sklearn.model_selection import RepeatedKFold, KFold, cross_validate
@@ -240,6 +242,7 @@ class KFoldCrossValidator(PathConfig):
             raise ValueError('Kfold cross validator type not specified or not supported, cv_type = str must be included in cross_validator call')
             
         # Initialize early stopping logic
+        ## reminder: es_score is loss for mlp and mse for sk_native
         early_stopper = KFoldEarlyStopping(es_score, patience= 5, delta= 0.001, verbose = True)
 
         # run either a full k sensitivity cross validation or single kfold instance for a given k
@@ -309,6 +312,7 @@ class KFoldCrossValidator(PathConfig):
             cv = cv_class(n_splits = k)
 
             # call native cv run instance
+            ## return a dictionary with min, max, mean for each metric
             kfold_results = cv_wrapper(X, y, cv, k)
 
             # Update overall results with k-fold cv instance results
@@ -407,6 +411,7 @@ class KFoldCrossValidator(PathConfig):
         self.clean_dir(checkpoint_dir)
 
         # Loop over CV kfold repeats and extract average values per kfold run instance
+        ## 'split' to generate indices to split data into traning and test set 
         for fold_idx, (train, test) in enumerate(cv.split(X,y)):
             
             self.print_verbose(f'Currently on fold {fold_idx} from k = {k} kfold run ...')
@@ -419,6 +424,9 @@ class KFoldCrossValidator(PathConfig):
             callbacks_list = [checkpoint,early_stopping]
 
             # Fit network with CV split train, val sets and call checkpoint callback
+            ## pass validaton for monitoring validation loss and metrics at the end of each epoch
+            ## the returned history holds a record of the loss values and metric value during training (loss and val_loss)
+            ## callbacks are used to perform tasks: saving model checkpoint and early stopping (can be logging traning metrics as well)
             history = self.model.fit(X[train],y[train], 
                             validation_data=(X[test], y[test]), epochs = 50, batch_size = 1,
                             callbacks=callbacks_list,verbose=0)
@@ -431,6 +439,7 @@ class KFoldCrossValidator(PathConfig):
             self.model.load_weights(latest_checkpoint)
 
             # Evaluate model fit on validation set according to Kfold split
+            ## the retured cores are specified when compiling the model
             scores = self.model.evaluate(X[test], y[test], verbose=0)
 
             # Update best val_loss obtained from all repeats in the present kfold run
@@ -504,10 +513,15 @@ class KFoldCrossValidator(PathConfig):
         # clean if previous files exist
         else:
             for filename in os.listdir(dir):
-                file_path = os.path.join(dir,filename)
+                file_path = os.path.join(dir, filename)
 
+                # Check if the current file is a directory
                 if os.path.isdir(file_path):
-                    shutil.rmtree(file_path)  # Remove directory and its contents
+                    # Check if the directory is 'hyperparam_tune'
+                    if filename == 'hyperparam_tune':
+                        continue  # Skip this directory
+                    else:
+                        shutil.rmtree(file_path)  # Remove directory and its contents
                 else:
                     os.remove(file_path)
 
@@ -518,8 +532,8 @@ class HyperParamTuning(PathConfig):
     ## SEARCH SPACES ##
     regressor_hp_search_space = {'dt': {'criterion': ['squared_error', 'friedman_mse', 'absolute_error'],
                 'max_depth': [2, 4, 6, 8, 10],
-                'min_samples_split': [2, 4, 6, 8, 10],
-                'min_samples_leaf': [1, 2, 4, 6],
+                'min_samples_split': [2, 4, 6, 8, 10, 12, 14],
+                'min_samples_leaf': [1, 2, 3, 4, 6],
                 'min_impurity_decrease': [0.0, 0.1, 0.2, 0.3],
                 'max_leaf_nodes': [None, 2, 5],
                 'splitter' : ['best','random']}, 
@@ -812,7 +826,7 @@ class HyperParamTuning(PathConfig):
             
             # Include specific settings for hyperband tuner and remove max_trials
             tuner_args.update({
-                'max_epochs' : 10,
+                'max_epochs' : 100,
                 'factor': 3,
                 'hyperband_iterations': 3
             })
@@ -965,12 +979,14 @@ class HyperParamTuning(PathConfig):
                     
 class ModelEvaluator(PathConfig):
 
-    def __init__(self, model, data_packs: list,case,pca):
+    def __init__(self, model, modelname:str, data_packs: list,case: str, pca:bool, datasample: str):
         super().__init__()
 
         self.model = model
+        self.modelname = modelname
         self._case = case
         self.pca = pca
+        self.datasample = datasample
 
         # Reading data packs for model fit and eval
         self.X_train_df, self.y_train_df, self.X_test_df, self.y_test_df = data_packs[:4]
@@ -990,7 +1006,7 @@ class ModelEvaluator(PathConfig):
         
         # load the saved pca components for each feature
         for feature in pca_features:
-            with open(os.path.join(self.pca_savepath, self._case, f'pca_model_{feature}.pkl'), 'rb') as f:
+            with open(os.path.join(self.pca_savepath, self._case, self.datasample, f'pca_model_{feature}.pkl'), 'rb') as f:
                 pca_compnts_per_feat = pickle.load(f)
 
             # extract all the columns related one feature
@@ -1019,48 +1035,127 @@ class ModelEvaluator(PathConfig):
             return y_pred
  
 
-    def plot_dispersion(self):
+    def plot_overall_dispersion(self):
 
         y_pred_test = self.predict(self.X_test_df, self.y_test_df)
         y_pred_train = self.predict(self.X_train_df,self.y_train_df)
 
+        y_list = [self.y_train, self.y_test]
         y_pred_list = [y_pred_train,y_pred_test]
-
-        fig ,axes = plt.subplots(2, figsize=(8,6))
-
-        for i, ax in enumerate(axes):
-            x = np.linspace(np.min(y_pred_list[i]),np.max(y_pred_list[i]),100)
-            y = x
-            pos_dev = -1 +1.2*(x+1)
-            neg_dev = -1 +0.8*(x+1)
-
-            ax.plot(x,y,label = 'x=y', color = 'k', linewidth = 2.5)
-            ax.plot(x,pos_dev, label = '+20%', color = 'r', linewidth = 1.5, linestyle = '--')
-            ax.plot(x,neg_dev, label = '-20%', color = 'r', linewidth = 1.5, linestyle = '--')
-            ax.set_xlabel('True Data')
-            ax.set_ylabel('Predicted Data')
-            ax.legend()
-
-        axes[0].scatter(self.y_train, y_pred_train, edgecolor='k', c= self.y_train, cmap=COLOR_MAP)
-        axes[0].set_title('Training data dispersion plot')
-        axes[1].scatter(self.y_test, y_pred_test, edgecolor='k', c= self.y_test, cmap=COLOR_MAP)
-        axes[1].set_title('Testing data dispersion plot')
+        y_label_list = ['Training', 'Testing']
+        color_list = ['blue','orange']
         
-        plt.tight_layout()
+        fig,ax = plt.subplots(figsize=(8,6))
+
+        for i in range(len(y_label_list)):
+            
+            x_min = min(np.min(y_pred_list[i]), np.min(y_list[i]))
+            x_max = max(np.max(y_pred_list[i]), np.max(y_list[i]))
+            x = np.linspace(x_min,x_max,100)
+
+            ax.scatter(y_list[i][::25],y_pred_list[i][::25],marker='+',c=color_list[i],label=f'{y_label_list[i]} Data')#edgecolor='k', c= y_list[i], cmap=COLOR_MAP)
+            
+        # y=x
+        ax.plot(x, x,label = r'y=x', color = 'k', linewidth = 2, linestyle='--')
+        # deviation band
+        dispersion = 0.2*np.abs(x)
+        plt.fill_between(x,x-dispersion,x+dispersion,color='gray',alpha=0.2,label=r'$20\%$ Dispersion')
+
+        ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
+        ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
+        ax.tick_params(axis='both',labelsize=20)
+    
+        ax.legend(fontsize=20)
+        # ax.set_title(f'{y_label_list[i]} Data',fontweight='bold',fontsize=30)
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.fig_savepath, self._case, self.datasample, f'{self.modelname}_Pred.png'),dpi=200)
         plt.show()
     
-    def plot_r2_hist(self, num_bins = 10):
+    def plot_features_r2(self):
 
         y_pred = self.predict(self.X_test_df, self.y_test_df)
-        
-        r2 = r2_score(self.y_test, y_pred)
 
-        plt.figure(figsize=(8,6))
-        plt.hist(r2, num_bins, edgecolor = 'black')
-        plt.xlabel('R2_Score')
-        plt.ylabel('Frequency')
-        plt.title('R2 histogram')
+        # Calculate the r2 for each feature
+        # empty dictionary to store the r2 for all features
+        r2_values = {}
+        # allocate the columns on the prediction array
+        y_pred_df = pd.DataFrame(y_pred, columns=self.y_test_df.columns)
+        # extract all the reduced features, e.g., Q, E_max
+        pca_features = set(['_'.join(col.split('_')[:-1]) for col in y_pred_df.columns])
+        # calculate the r2 value for each features
+        fig1,ax = plt.subplots(figsize=(8,6))
+        colors = sns.color_palette('muted',len(pca_features))
+        feat_label = {'E_diss': r'$E_{diss}$',
+                      'E_max': r'$e_{\lambda, max}$',
+                      'Gamma': r'$\dot{\gamma}$',
+                      'Velocity': r'$U_{av}$',
+                      'Q':r'$Q$'}
+        feat_colors = {key: colors[i] for i, key in enumerate(feat_label)}
+
+        legend_handles = []
+
+        legend_order = ['E_diss', 'E_max', 'Gamma', 'Velocity', 'Q']
+
+        for idx, feat in enumerate(pca_features):
+            pattern = re.compile(f'^{feat}_\d+$')
+            # extract all the columns related one feature
+            column_per_feat = [col for col in y_pred_df.columns if pattern.match(col)]
+            # slicing associated columns for y_pred_df and y_test_df
+            y_pred_slice = y_pred_df[column_per_feat].to_numpy()
+            y_test_slice = self.y_test_df[column_per_feat].to_numpy()
+            r2 = r2_score(y_test_slice,y_pred_slice)
+            r2_values[feat] = r2
+
+            # plot a dipsersion plot for each feature
+            scatter = ax.scatter(y_test_slice[::25],y_pred_slice[::25],edgecolor='k',color= feat_colors.get(feat),label=f'{feat_label.get(feat,feat)}')
+            legend_handles.append((scatter, feat_label.get(feat, feat)))
+        
+        # Plot y=x line
+        x = np.linspace(-1, 1, 100)
+        ax.plot(x, x, label=r'y=x', color='k', linewidth=2, linestyle='--')
+
+        # Plot deviation band
+        dispersion = 0.2 * np.abs(x)
+        plt.fill_between(x, x - dispersion, x + dispersion, color='gray', alpha=0.2, label=r'$20\%$ Dispersion')
+
+        ax.set_xlabel(r'True Data',fontweight='bold',fontsize=25)
+        ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=25)
+        ax.set_xlim(-1,1)
+        ax.set_ylim(-1,1)
+
+        # Create custom legend in desired order
+        ordered_handles = []
+        ordered_labels = []
+
+        for feat in legend_order:
+            label = feat_label[feat]
+            handle = next(h for h, l in legend_handles if l == label)
+            ordered_handles.append(handle)
+            ordered_labels.append(label)
+        
+        ax.legend(ordered_handles, ordered_labels, fontsize=18, handletextpad=0.2)
+
+        fig1.savefig(os.path.join(self.fig_savepath, self._case, self.datasample,f'{self.modelname}_Pred_test.png'),dpi=200)
         plt.show()
+        
+        # # Sort the keys based on the r2 values in descending order, Overall always at the last
+        # sorted_keys = sorted(r2_values.keys(),key=lambda x: r2_values[x], reverse=True)
+        # r2_values['Overall'] = r2_score(self.y_test, y_pred)
+        # sorted_feat = sorted_keys + ['Overall']
+        # sorted_values = [r2_values[key] for key in sorted_feat]
+
+        # fig2 = plt.figure(figsize=(8,6))
+        # plt.bar(sorted_feat,sorted_values, edgecolor='black')
+        # # Add the values at the top of bars
+        # for i, value in enumerate(sorted_values):
+        #     plt.text(i, value, f'{value:.3f}', ha='center',va='bottom',fontweight='bold')
+        # plt.ylabel(r'$R^2$',fontsize=30)
+        # plt.xticks(rotation=45)
+        # plt.tick_params(axis='x',labelsize=20)
+        # plt.tick_params(axis='y',labelsize=20)
+        # fig2.tight_layout()
+        # fig2.savefig(os.path.join(self.fig_savepath,self._case, self.datasample,f'{self.modelname}_R2.png'),dpi=200)
+        # plt.show()
 
     def display_metrics(self):
 
@@ -1070,6 +1165,8 @@ class ModelEvaluator(PathConfig):
         mse = mean_squared_error(self.y_test, y_pred)
         mae = mean_absolute_error(self.y_test, y_pred)
 
+        print('-'*72)
+        print(f'{self.modelname} Performance with {self.datasample} sampling')
         print('R2 Score: ', r2)
         print('Mean Squared Error: ', mse)
         print('Mean Absolute Error: ', mae)

@@ -24,6 +24,10 @@ class PathConfig:
         return self._config['Path']['input']
     
     @property
+    def resample_savepath(self):
+        return self._config['Path']['resample']
+    
+    @property
     def pca_savepath(self):
         return self._config['Path']['pca']
 
@@ -38,3 +42,7 @@ class PathConfig:
     @property
     def model_savepath(self):
         return self._config['Path']['models']
+    
+    @property
+    def bestmodel_savepath(self):
+        return self._config['Path']['best']

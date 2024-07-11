@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from keras.optimizers import Adam
 import tensorflow as tf
 import numpy as np
+import os
 #Model metrics and utilities
 from model_utils import KFoldCrossValidator, HyperParamTuning, ModelEvaluator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -50,11 +51,34 @@ class Regressor(ABC,PathConfig):
     Returns:
     - Loaded model object.
     """
+        if not os.path.exists(model_dir):
+            raise FileNotFoundError(f"Model state at '{model_dir}' does not exist.")
+        
         if is_mlp:
             return tf.keras.models.load_model(model_dir)
         else:
             return joblib.load(model_dir)
-    
+
+    @staticmethod
+    def save_model(model, model_dir: str, is_mlp: bool):
+        """
+        Save the model based on whether it's an MLP model or not.
+
+        Parameters:
+        - model: model state to save
+        - model_dir (str): Directory where the model will be saved.
+        - is_mlp (bool): Flag indicating whether the model is an MLP model or not.
+
+        """
+        
+        if not os.path.exists(model_dir):
+            raise FileNotFoundError(f"Model directory '{model_dir}' does not exist.")
+        
+        if is_mlp:
+            model.save(os.path.join(model_dir, 'best_model.keras'))
+        else:
+            joblib.dump(model, os.path.join(model_dir, 'best_model.pkl'))
+
     @staticmethod
     def get_cvargs(cv: str, score: str) -> dict:
         """
@@ -147,10 +171,10 @@ class Regressor(ABC,PathConfig):
     - 'halve_random': Combining Halving and Random search hyperparameter tuning.
 
     Options for mlp_tuning_type:
-    - 'hyperband': 
-    - 'bayesian': 
-    - 'random': 
-    - 'grid_search': 
+    - 'hyperband': takes hyperband iterations (iterations over the entire algorithm), training epochs, and a factor to reduce number of epochs and models
+    - 'bayesian': tuning with gaussian process, takes beta parameter to balance explotaition vs. exploration
+    - 'random': random search
+    - 'grid_search': standard gridsearch
 
     Options for fit_score:
     - 'mse': Mean Squared Error
@@ -239,16 +263,16 @@ class Regressor(ABC,PathConfig):
 
         return tuned_model
     
-    def model_evaluate(self,tuned_model,data_packs,case,pca):
+    def model_evaluate(self,tuned_model, model_name, data_packs,case,pca, datasample):
             
-        model_eval = ModelEvaluator(tuned_model, data_packs,case,pca)
+        model_eval = ModelEvaluator(tuned_model, model_name, data_packs,case,pca, datasample)
 
         print('-'*72)
         print('Evaluating final model performance')
         print('-'*72)
 
-        model_eval.plot_dispersion()
-        model_eval.plot_r2_hist()
+        model_eval.plot_overall_dispersion()
+        model_eval.plot_features_r2()
         model_eval.display_metrics()
 
 ############################# MLP PARENT CLASS ###########################################

@@ -5,47 +5,29 @@
 ### Department of Chemical Engineering, Imperial College London
 ##########################################################################
 
-import pandas as pd
 import os
+import sys
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from paths import PathConfig
 from model_lib import ModelConfig
+from data_utils import DataLoader
+
+# Global paths configuration
+PATH = PathConfig()
+####
 
 def main():
 
-    # Load data to process
-    path = PathConfig()
+    case = input('Select a study from where to load proccessed data packs (sp_(sv)geom): ')
 
-    case = input('Select a study to process raw datasets (sp_(sv)geom, (sv)surf, (sv)geom): ')
-    label_package = []
-    data_packs = []
-
-    # Read package names to later import
-    with open(os.path.join(path.input_savepath,case,'Load_Labels.txt'), 'r') as file:
-        lines = file.readlines()
-
-        for line in lines:
-            label_package.append(line.split('\n')[0])
-
-    # Checking in PCA has been applied to the dataset
-    if 'PCA_info' in label_package:
-        pca = True
-    else:
-        pca = False
+    dataloader = DataLoader(case)
     
-    # Save only train and test packs
-    label_package =  [item for item in label_package if item not in ['full', 'PCA_info']]
-    
-    # Load pickle files
-    for label in label_package:
+    inidata_dir = os.path.join(PATH.input_savepath, case, 'ini')
 
-        data_path = os.path.join(path.input_savepath,case,f'{label}.pkl')
+    # load initial data packs and retrieve whether pca has been executed
+    data_packs = dataloader.load_packs(inidata_dir)
+    pca = dataloader.pca
 
-        if os.path.exists(data_path):
-
-            data_pack = pd.read_pickle(data_path)          
-            data_packs.append(data_pack)
-    
     # Model selection from user input
     model_choice = input('Select a regressor to train and deploy (dt, xgb, rf, svm, knn, mlp_br, mlp): ')
     
@@ -63,6 +45,7 @@ def main():
     if model_choice in ['mlp', 'mlp_br']:
         model_params['input_size'] = data_packs[0].shape[-1]
         model_params['output_size'] = data_packs[1].shape[-1]
+        is_mlp = True
 
         # Count the number of individual features in the input data
         features = data_packs[1].columns
@@ -89,6 +72,8 @@ def main():
             ksens = input('Include K-sensitivity? (y/n): ')
         else:
             ksens = 'n'
+
+        is_mlp = False
     
     do_hp_tune = input('Perform hyperparameter tuning cross-validation? (y/n): ')
 
@@ -105,8 +90,20 @@ def main():
     # Regression training and evaluation
     tuned_model = model_instance.model_train(data_packs, model, 
                                         cv_options, model_name)
+    
+    print('-'*72)
+    print('-'*72)
+    print(f'Saving {model_name} best model...')
+    
+    # Save best perfoming trained model based on model_train cross_validation filters and steps selected by the user
+    best_model_path = os.path.join(PATH.bestmodel_savepath, model_name)
+    # Check if the subfolder for the model exists
+    if not os.path.exists(best_model_path):
+        os.makedirs(best_model_path)
+    model_instance.save_model(tuned_model,best_model_path,is_mlp)
+
     # Calling model evaluate with tuned model
-    model_instance.model_evaluate(tuned_model, data_packs,case,pca)
+    model_instance.model_evaluate(tuned_model, model_name, data_packs,case,pca, datasample = 'ini')
 
 if __name__ == "__main__":
     main()

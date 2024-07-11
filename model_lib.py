@@ -1,6 +1,6 @@
 ##########################################################################
 #### Regression model library
-#### Author: Juan Pablo Valdes
+#### Author: Juan Pablo Valdes and Fuyue Liang
 ### First commit: Feb 2024
 ### Department of Chemical Engineering, Imperial College London
 ##########################################################################
@@ -247,20 +247,20 @@ class ModelConfig:
     }
 
     hyperparameters = {
-        'dt': {'criterion': 'absolute_error',
-                'max_depth': 8,
-                'min_samples_split': 4,
-                'min_samples_leaf': 4,
+        'dt': {'criterion': 'squared_error',
+                'max_depth': 5,
+                'min_samples_split': 2,
+                'min_samples_leaf': 1,
                 'min_impurity_decrease': 0,
                 'max_leaf_nodes': None,
                 'splitter': 'best'}, 
         'xgb': {'max_depth': 1, 
-                'n_estimators': 200, 
-                'learning_rate': 0.3,
+                'n_estimators': 150, 
+                'learning_rate': 0.1,
                 'min_child_weight': 3, 
                 'subsample': 1,
                 'colsample_bytree': 1, 
-                'gamma': 0,
+                'gamma': 0.01,
                 'lambda': 0.001, 
                 'alpha': 0.05}, 
         'rf': {'n_estimators': 100,
