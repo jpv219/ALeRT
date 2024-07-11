@@ -1085,8 +1085,18 @@ class ModelEvaluator(PathConfig):
         # calculate the r2 value for each features
         fig1,ax = plt.subplots(figsize=(8,6))
         colors = sns.color_palette('muted',len(pca_features))
+        feat_label = {'E_diss': r'$E_{diss}$',
+                      'E_max': r'$e_{\lambda, max}$',
+                      'Gamma': r'$\dot{\gamma}$',
+                      'Velocity': r'$U_{av}$',
+                      'Q':r'$Q$'}
+        feat_colors = {key: colors[i] for i, key in enumerate(feat_label)}
+
+        legend_handles = []
+
+        legend_order = ['E_diss', 'E_max', 'Gamma', 'Velocity', 'Q']
+
         for idx, feat in enumerate(pca_features):
-            feat_label = {'Ur':r'$u_x$'}
             pattern = re.compile(f'^{feat}_\d+$')
             # extract all the columns related one feature
             column_per_feat = [col for col in y_pred_df.columns if pattern.match(col)]
@@ -1097,10 +1107,34 @@ class ModelEvaluator(PathConfig):
             r2_values[feat] = r2
 
             # plot a dipsersion plot for each feature
-            ax.scatter(y_test_slice[::25],y_pred_slice[::25],edgecolor='k',color= colors[idx],label=f'{feat_label.get(feat,feat)}')
-            ax.set_xlabel(r'True Data',fontweight='bold',fontsize=30)
-            ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=30)
-            ax.legend(fontsize=25,handletextpad=0.2)
+            scatter = ax.scatter(y_test_slice[::25],y_pred_slice[::25],edgecolor='k',color= feat_colors.get(feat),label=f'{feat_label.get(feat,feat)}')
+            legend_handles.append((scatter, feat_label.get(feat, feat)))
+        
+        # Plot y=x line
+        x = np.linspace(-1, 1, 100)
+        ax.plot(x, x, label=r'y=x', color='k', linewidth=2, linestyle='--')
+
+        # Plot deviation band
+        dispersion = 0.2 * np.abs(x)
+        plt.fill_between(x, x - dispersion, x + dispersion, color='gray', alpha=0.2, label=r'$20\%$ Dispersion')
+
+        ax.set_xlabel(r'True Data',fontweight='bold',fontsize=25)
+        ax.set_ylabel(r'Predicted Data',fontweight='bold',fontsize=25)
+        ax.set_xlim(-1,1)
+        ax.set_ylim(-1,1)
+
+        # Create custom legend in desired order
+        ordered_handles = []
+        ordered_labels = []
+
+        for feat in legend_order:
+            label = feat_label[feat]
+            handle = next(h for h, l in legend_handles if l == label)
+            ordered_handles.append(handle)
+            ordered_labels.append(label)
+        
+        ax.legend(ordered_handles, ordered_labels, fontsize=18, handletextpad=0.2)
+
         fig1.savefig(os.path.join(self.fig_savepath, self._case, self.datasample,f'{self.modelname}_Pred_test.png'),dpi=200)
         plt.show()
         

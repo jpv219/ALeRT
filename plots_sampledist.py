@@ -18,8 +18,10 @@ plt.rcParams.update({
     "font.weight": "bold",
     "font.serif": ['Computer Modern']})
 
-label_list = {'Impeller_Diameter (m)': r'Impeller diameter', 'Frequency (1/s)':r'Frequency', 'Clearance (m)':r'Clearance', 'Blade_width (m)':r'Blade width',
-              'Blade_thickness (m)': r'Blade thickness', 'Nblades': r'Blade number', 'Inclination': r'Inclination'}
+#label_list = {'Impeller_Diameter (m)': r'Impeller diameter', 'Frequency (1/s)':r'Frequency', 'Clearance (m)':r'Clearance', 'Blade_width (m)':r'Blade width',
+#             'Blade_thickness (m)': r'Blade thickness', 'Nblades': r'Blade number', 'Inclination': r'Inclination'}
+label_list = {'Bar_Width (mm)': r'$W$', 'Bar_Thickness (mm)' : r'$Th$', 'Radius (mm)': r'$R_p$', 'Nbars' : r'$n_{cr}$',
+        'Flowrate (m3/s)': r'$Q_c$', 'Angle': r'$\theta$', 'NElements': r'$n_{E}$','Re':r'$Re$'}
 data_label = {'random':r'Random', 'dt':r'DT-guided','gsx':r'GSx'}
 
 def define_random_center(in_idx_list,ini_df):
@@ -48,7 +50,7 @@ def define_random_center(in_idx_list,ini_df):
     # Creating plot
     ax.scatter3D(ref_x1, ref_x2, ref_x3, s=100)
     ax.scatter3D(c_x1, c_x2, c_x3, s=100, c='red', label='Point')
-    fig1.savefig(f'/home/fl18/Desktop/images/THESIS/sampledist_random_center.png',dpi=300)
+    fig1.savefig(f'/home/jpv219/Documents/ML/ALeRT/figs/sp_geom/input_space/sampledist_random_center.png',dpi=300)
     plt.show()
 
 
@@ -70,8 +72,8 @@ def plot_point_dist3d(in_idx_list,iter_list,ini_df,df,data_name):
         fig1 = plt.figure(figsize = (11, 10))
         ax = plt.axes(projection ="3d")
         # Creating plot
-        ax.scatter3D(ref_x1, ref_x2, ref_x3, s=100, color = "red",label=r'Initial')
-        ax.scatter3D(x1[:iter], x2[:iter], x3[:iter], marker='^', s=100, color = "blue",label=f'{data_label.get(data_name,data_name)}')
+        ax.scatter3D(ref_x1, ref_x2, ref_x3, s=60, color = "#FFAAAA80",label=r'Initial')
+        ax.scatter3D(x1[:iter], x2[:iter], x3[:iter], marker='^', s=200, color = "blue",label=f'{data_label.get(data_name,data_name)}')
 
         # figure format
         ax.set_xlabel(f'{label_list.get(col1,col1)}', fontsize =35)
@@ -92,7 +94,7 @@ def plot_point_dist3d(in_idx_list,iter_list,ini_df,df,data_name):
         ax.legend(loc='upper right',fontsize=30)
         
         fig1.tight_layout()
-        fig1.savefig(f'/home/fl18/Desktop/images/THESIS/sampledist_{data_name}_iter{iter}.png',dpi=300)
+        fig1.savefig(f'/home/jpv219/Documents/ML/ALeRT/figs/sp_geom/input_space/sampledist_{data_name}_iter{iter}.png',dpi=300)
         plt.show()
 
 def plot_point_dist2d(in_idx_list,ini_df,df,data_name):
@@ -124,7 +126,58 @@ def plot_point_dist2d(in_idx_list,ini_df,df,data_name):
     plt.legend(loc='upper right',fontsize=20)
     
     fig1.tight_layout()
-    fig1.savefig(f'/home/fl18/Desktop/images/THESIS/sampledist_{data_name}_{label_list.get(col1,col1)}{label_list.get(col2,col2)}.png',dpi=200)
+    fig1.savefig(f'/home/jpv219/Documents/ML/ALeRT/figs/sp_geom/input_space/sampledist_{data_name}_{label_list.get(col1,col1)}{label_list.get(col2,col2)}.png',dpi=200)
+    plt.show()
+
+def plot_joint_3dscatter(in_idx_list,iter_list,ini_df,dfs,data_names):
+    
+    colors = {'random':"blue", 'dt':"orange",'gsx':"green"}
+
+    markers = {'random': 'x', 'dt': 'v', 'gsx': 's'}
+
+    # Initialize the figure and 3D axis
+    fig1 = plt.figure(figsize=(11, 10))
+    ax = plt.axes(projection="3d")
+    
+    for df,data_name in zip(dfs,data_names):
+    
+        col1 = df.columns[in_idx_list[0]]
+        col2 = df.columns[in_idx_list[1]]
+        col3 = df.columns[in_idx_list[2]]
+
+        x1 = df[col1].to_numpy()
+        x2 = df[col2].to_numpy()
+        x3 = df[col3].to_numpy()
+    
+        for iter in iter_list:
+
+            ax.scatter3D(x1[:iter], x2[:iter], x3[:iter], marker=markers.get(data_name), s=200, color = colors.get(data_name),edgecolors = 'k',label=f'{data_label.get(data_name,data_name)}')
+
+    # figure format
+            
+    ref_x1 = ini_df[col1].to_numpy()
+    ref_x2 = ini_df[col2].to_numpy()
+    ref_x3 = ini_df[col3].to_numpy()
+    ax.scatter3D(ref_x1, ref_x2, ref_x3, s=60, color = "#FFAAAA80",label=r'Initial')
+    ax.set_xlabel(f'{label_list.get(col1,col1)}', fontsize =35)
+    ax.set_ylabel(f'{label_list.get(col2,col2)}', fontsize =35)
+    ax.set_zlabel(f'{label_list.get(col3,col3)}', fontsize =35)
+
+    ax.set_xticks([-1,-0.5,0,0.5,1])
+    ax.set_yticks([-1,-0.5,0,0.5,1])
+    ax.set_zticks([-1,-0.5,0,0.5,1])
+    ax.tick_params(labelsize=25)
+    ax.xaxis.labelpad=30
+    ax.yaxis.labelpad=30
+    ax.zaxis.labelpad=20
+    ax.axes.set_xlim3d(left=-1, right=1) 
+    ax.axes.set_ylim3d(bottom=-0.98, top=0.98) 
+    ax.axes.set_zlim3d(bottom=-0.98, top=0.98)
+    # ax.set_title(f'Sample distribution: initial vs. {data_name}',fontsize=16,fontweight ='bold')
+    ax.legend(loc='upper left',fontsize=22)
+    
+    fig1.tight_layout()
+    fig1.savefig(f'/home/jpv219/Documents/ML/ALeRT/figs/sp_geom/input_space/sampledist_combined_iter{iter}.png',dpi=300)
     plt.show()
 
 def main():
@@ -177,7 +230,20 @@ def main():
 
         plot_point_dist2d(in_idx_list,ini_df,input_df,data_name)
 
-    
+    combined = input('Plot all together?(y/n): ')
+
+    if combined.lower() == 'y':
+
+        dt_pkl = os.path.join(PATH.resample_savepath, case_name,'dt', 'X_train_dt.pkl')
+        dt_df = pd.read_pickle(dt_pkl)
+        gsx_pkl = os.path.join(PATH.resample_savepath, case_name,'gsx', 'X_train_gsx.pkl')
+        gsx_df = pd.read_pickle(gsx_pkl)
+
+        data_names = ['random','dt','gsx']
+
+        dfs = [random_df,dt_df,gsx_df]
+
+        plot_joint_3dscatter(in_idx_list, iter_list, ini_df, dfs, data_names)
 
 if __name__ == "__main__":
     main()
