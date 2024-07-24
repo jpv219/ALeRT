@@ -271,7 +271,7 @@ def main():
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
     AL_samplers = {'dt': DT_Sampling(case),
-                   'gsx': GSX_Sampling(case, num_samples=30)}
+                   'gsx': GSX_Sampling(case, num_samples=60)}
     
     sampler = AL_samplers.get(sampler_choice)
 
@@ -297,6 +297,17 @@ def main():
         print(f'Running GSx sampling')
         print('-'*72)
         rules = sampler.generate_rules(random_packs,new_trial_folder)
+
+        # extract the gsx cases based on the rules (indexes) from the random cases
+        dfgsx = pd.read_pickle(os.path.join(new_trial_folder,'gsx_df.pkl'))
+        dfx = pd.read_pickle(os.path.join(random_dir,'X_random.pkl'))
+        dfy = pd.read_pickle(os.path.join(random_dir,'y_random_raw.pkl'))
+
+        dfxgsx = dfx.loc[dfgsx.index]
+        dfygsx = dfy.loc[dfgsx.index]
+
+        dfxgsx.to_pickle(os.path.join(resample_dir,'X_train_gsx.pkl'))
+        dfygsx.to_pickle(os.path.join(resample_dir,'y_train_gsx_raw.pkl'))
     
     elif len(trial_list) == 0 and sampler_choice == 'dt':
         print('-'*72)
