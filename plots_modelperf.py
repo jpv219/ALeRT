@@ -147,7 +147,7 @@ def main():
         data_choice_list = ['random', 'dt', 'gsx']
 
         for data_choice in data_choice_list:
-            for idx in range(3):
+            for idx in range(4):
                 # Load best trained model
                 print('-'*72)
                 print(f'This is Iteration {idx}.')

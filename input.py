@@ -83,7 +83,7 @@ def process_ini(case_name, df, X_scaled, y_scaled, dt_processor: DataProcessor, 
         random_ratio=0.55#0.25
         test_ratio = 0.3#0.37
     else:
-        random_ratio=0.20
+        random_ratio=0.15
         test_ratio = 0.30
 
     X_ini, X_random, y_ini, y_random = train_test_split(X_scaled[-1], y_scaled[-1], test_size=random_ratio, random_state=2024)

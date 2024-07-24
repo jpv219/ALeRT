@@ -273,7 +273,7 @@ class Regressor(ABC,PathConfig):
 
         model_eval.plot_overall_dispersion()
         model_eval.plot_features_r2()
-        # model_eval.display_metrics()
+        model_eval.display_metrics()
 
 ############################# MLP PARENT CLASS ###########################################
 
