@@ -1,0 +1,35 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: 'ALeRT: Active Learning Regression Toolbox'
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Juan
+    family-names: Valdes
+    email: j.valdes20@imperial.ac.uk
+    affiliation: Imperial College London
+    orcid: 'https://orcid.org/0000-0003-3249-5194'
+  - given-names: Fuyue
+    family-names: Liang
+    email: fuyue.liang18@imperial.ac.uk
+    affiliation: Imperial College London
+    orcid: 'https://orcid.org/0000-0002-4159-6993'
+identifiers:
+  - type: url
+    value: 'https://github.com/jpv219/ALeRT/tree/v2.0'
+    description: GitHub URL
+repository-code: 'https://github.com/jpv219/ALeRT/tree/v2.0'
+abstract: >-
+  This project provides a flexible framework for training
+  and executing different machine learning regression models
+  on hydrodynamic features of mixing devices. ALeRT allows
+  for hyperparameter tuning, k-fold cross-validation, and
+  active learning techniques to generate new data points for
+  augmented model training.
+commit: ' cb423a3'
+version: V2.0
+date-released: '2024-07-11'
