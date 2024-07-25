@@ -80,8 +80,8 @@ def process_ini(case_name, df, X_scaled, y_scaled, dt_processor: DataProcessor, 
 
     # Case splitting for sampling comparison, setting an initial set to train with and explore: AL vs. Random
     if 'sv' in case_name:
-        random_ratio=0.25
-        test_ratio = 0.37
+        random_ratio=0.55#0.25
+        test_ratio = 0.3#0.37
     else:
         random_ratio=0.15
         test_ratio = 0.30
