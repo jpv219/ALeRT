@@ -271,7 +271,7 @@ def main():
     sampler_choice = input('Select AL sampling technique to generate guided sample space to explore (dt, gsx): ')
 
     AL_samplers = {'dt': DT_Sampling(case),
-                   'gsx': GSX_Sampling(case, num_samples=60)}
+                   'gsx': GSX_Sampling(case, num_samples=100)}
     
     sampler = AL_samplers.get(sampler_choice)
 
