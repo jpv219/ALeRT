@@ -142,6 +142,8 @@ class SpacePlotter(PathConfig):
         # Initialize the figure and 3D axis
         fig1 = plt.figure(figsize=(11, 10))
         ax = plt.axes(projection="3d")
+
+        added_labels = set()
         
         for df,data_name in zip(dfs,data_names):
         
@@ -155,7 +157,12 @@ class SpacePlotter(PathConfig):
         
             for iter in iter_list:
 
-                ax.scatter3D(x1[:iter], x2[:iter], x3[:iter], marker=markers.get(data_name), s=200, color = colors.get(data_name),edgecolors = 'k',label=f'{data_label.get(data_name,data_name)}')
+                label = f'{data_label.get(data_name)}' if data_name not in added_labels else None
+
+                if label is not None:
+                    added_labels.add(data_name)
+
+                ax.scatter3D(x1[:iter], x2[:iter], x3[:iter], marker=markers.get(data_name), s=200, color = colors.get(data_name),edgecolors = 'k',label=label)
 
         # figure format
                 
